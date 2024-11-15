@@ -5,10 +5,10 @@ import pandas as pd
 
 from scipy.signal import butter, filtfilt
 
-ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_rest_1.csv')
+# ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_rest_1.csv')
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_dobu.csv')
-# ifr_df = pd.read_csv('NARCO_119_eval/narco_119_pressure_dobu.csv')
-# ifr_df = ifr_df.head(500)
+ifr_df = pd.read_csv('NARCO_119_eval/narco_119_pressure_dobu.csv')
+ifr_df = ifr_df.head(500)
 
 ifr_df['p_aortic_smooth'] = ifr_df['p_aortic'].rolling(window=10).mean()
 ifr_df['p_distal_smooth'] = ifr_df['p_distal'].rolling(window=10).mean()
@@ -140,6 +140,8 @@ def calculate_ifr(ifr_df):
     aortic_indices = ifr_df.index[ifr_df['peaks'] == 3]
     diastole_indices = ifr_df.index[ifr_df['peaks'] == 2]
 
+    print(len(aortic_indices), len(diastole_indices))
+
     # if one of them is longer remove last index
     if len(aortic_indices) > len(diastole_indices):
         aortic_indices = aortic_indices[:-1]
@@ -158,14 +160,14 @@ def calculate_ifr(ifr_df):
         interval_distal = ifr_df.loc[aortic_idx:diastole_idx, 'p_distal_smooth']
 
         # get the integral of the interval by taking the sum of difference between p_aortic_smooth and p_distal_smooth
-        ifr_df.at[diastole_idx, 'diastolic_integral'] = np.sum(interval_aortic - interval_distal)
+        ifr_df.at[diastole_idx, 'systolic_integral'] = np.sum(interval_aortic - interval_distal)
 
         # remove 5 percent at each end
         interval_aortic = interval_aortic[int(len(interval_aortic)*0.25):int(len(interval_aortic)*0.90)]
         interval_distal = interval_distal[int(len(interval_distal)*0.25):int(len(interval_distal)*0.90)]
 
-        # calculate additionally diastolic ratio as p_distal_smooth / p_aortic_smooth for every poitn in interval
-        ifr_df.loc[aortic_idx:diastole_idx, 'diastolic_ratio'] = (interval_distal / interval_aortic).values
+        # calculate additionally diastolic ratio as p_distal_smooth / p_aortic_smooth for every point in interval
+        ifr_df.loc[aortic_idx:diastole_idx, 'diastolic_ratio'] = (interval_distal / interval_aortic).reindex(ifr_df.loc[aortic_idx:diastole_idx].index).values
 
         ifr_df.at[aortic_idx, 'iFR'] = interval_distal.mean() / interval_aortic.mean()
 

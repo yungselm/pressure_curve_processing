@@ -24,11 +24,11 @@ class SignalProcessing:
         self.preprocess_data()
         self.refind_peaks()
         self.find_saddle_point_with_trimmed_interval()
-        print(f'Number of saddle points: {len(self.data[self.data["peaks"] == 3])}')
+        # print(f'Number of saddle points: {len(self.data[self.data["peaks"] == 3])}')
         self.calculate_ifr()
-        print(f'iFR: {round(self.data["iFR"].mean(), 2)}')
+        # print(f'iFR: {round(self.data["iFR"].mean(), 2)}')
         self.calculate_systolic_measures()
-        print(f'Mid-systolic ratio: {round(self.data["mid_systolic_ratio"].mean(), 2)}')
+        # print(f'Mid-systolic ratio: {round(self.data["mid_systolic_ratio"].mean(), 2)}')
         self.save_results(self.output_path)
 
         return self.data
@@ -75,7 +75,9 @@ class SignalProcessing:
             longest_segment_indices = current_segment_indices
         
         # Keep only the rows corresponding to the longest alternating segment
-        self.data = df_copy.iloc[longest_segment_indices].reset_index(drop=True)
+        start_idx = longest_segment_indices[0]
+        end_idx = longest_segment_indices[-1]
+        self.data = df_copy.iloc[start_idx:end_idx + 1].reset_index(drop=True)
 
     def refind_peaks(self, signal='p_aortic_smooth'):
         """

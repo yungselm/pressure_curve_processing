@@ -4,6 +4,7 @@ import hydra
 from omegaconf import DictConfig
 from loguru import logger
 from signal_processing import SignalProcessing
+from post_processing import PostProcessing
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
 def main(cfg: DictConfig):
@@ -13,10 +14,6 @@ def main(cfg: DictConfig):
     input_dir = cfg.main.input_dir
     output_dir_data = cfg.main.output_dir_data
     output_dir_ivus = cfg.main.output_dir_ivus
-
-    logger.info(f"Starting processing with input directory: {input_dir}")
-    logger.info(f"Output directory for processed data: {output_dir_data}")
-    logger.info(f"Output directory for IVUS data: {output_dir_ivus}")
 
     # Ensure output directories exist
     os.makedirs(output_dir_data, exist_ok=True)
@@ -40,16 +37,18 @@ def main(cfg: DictConfig):
             os.makedirs(os.path.dirname(output_path), exist_ok=True)  # Ensure subdirectories exist
 
             try:
-                logger.info(f"Processing file: {file_path}")
                 processor = SignalProcessing(file_path, output_path)
                 processor()
-                logger.info(f"Successfully processed and saved to: {output_path}")
             except Exception as e:
                 logger.error(f"Error processing file {file_path}: {e}")
         else:
-            logger.info(f"Skipped file (pattern mismatch): {file_path}")
+            continue
 
     logger.info("Processing completed.")
+
+    # Post-processing
+    logger.info("Starting post-processing.")
+    post_processor = PostProcessing(output_dir_ivus)
 
 if __name__ == "__main__":
     main()

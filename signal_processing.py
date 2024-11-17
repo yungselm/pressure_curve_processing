@@ -21,10 +21,14 @@ class SignalProcessing:
         Runs all processing steps and saves results.
         """
         self._smooth_signals()
+        self.preprocess_data()
         self.refind_peaks()
         self.find_saddle_point_with_trimmed_interval()
+        print(f'Number of saddle points: {len(self.data[self.data["peaks"] == 3])}')
         self.calculate_ifr()
+        print(f'iFR: {round(self.data["iFR"].mean(), 2)}')
         self.calculate_systolic_measures()
+        print(f'Mid-systolic ratio: {round(self.data["mid_systolic_ratio"].mean(), 2)}')
         self.save_results(self.output_path)
 
         return self.data
@@ -35,6 +39,43 @@ class SignalProcessing:
         """
         self.data['p_aortic_smooth'] = self.data['p_aortic'].rolling(window=window).mean()
         self.data['p_distal_smooth'] = self.data['p_distal'].rolling(window=window).mean()
+
+    def preprocess_data(self):
+        """
+        Checks for the longest segment where peaks == 1 and 2 alternate, and keeps only that segment.
+        Peaks can have values of 1, 2, or 0 (non-peaks), and only alternating 1 and 2 are considered valid.
+        """
+        df_copy = self.data.copy()
+        peaks = df_copy['peaks'].tolist()
+        
+        longest_segment_indices = []
+        current_segment_indices = []
+        
+        for idx, peak in enumerate(peaks):
+            # Skip 0s since they do not represent valid peaks
+            if peak == 0:
+                continue
+            
+            if not current_segment_indices:
+                current_segment_indices.append(idx)
+            else:
+                last_peak = df_copy.loc[current_segment_indices[-1], 'peaks']
+                
+                # Check if current peak alternates with the last valid peak
+                if peak != last_peak:
+                    current_segment_indices.append(idx)
+                else:
+                    # If alternation breaks, finalize the current segment
+                    if len(current_segment_indices) > len(longest_segment_indices):
+                        longest_segment_indices = current_segment_indices
+                    current_segment_indices = [idx]  # Start a new segment with the current index
+        
+        # Check the last segment
+        if len(current_segment_indices) > len(longest_segment_indices):
+            longest_segment_indices = current_segment_indices
+        
+        # Keep only the rows corresponding to the longest alternating segment
+        self.data = df_copy.iloc[longest_segment_indices].reset_index(drop=True)
 
     def refind_peaks(self, signal='p_aortic_smooth'):
         """
@@ -133,7 +174,7 @@ class SignalProcessing:
             diastole_idx = diastole_indices[i]
 
             # Get the data range between systole and diastole
-            interval_aortic = df_copy.loc[aortic_idx:diastole_idx, 'p_aortic_smooth']
+            interval_aortic = self.data.loc[aortic_idx:diastole_idx, 'p_aortic_smooth']
             interval_distal = self.data.loc[aortic_idx:diastole_idx, 'p_distal_smooth']
 
             # Calculate systolic integral as the sum of the difference between p_aortic_smooth and p_distal_smooth

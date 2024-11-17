@@ -6,12 +6,79 @@ import pandas as pd
 from scipy.signal import butter, filtfilt
 
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_rest_1.csv')
-ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_dobu.csv')
+# ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_dobu.csv')
 # ifr_df = pd.read_csv('NARCO_119_eval/narco_119_pressure_dobu.csv')
+ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_ade.csv')
 # ifr_df = ifr_df.tail(2000)
 
 ifr_df['p_aortic_smooth'] = ifr_df['p_aortic'].rolling(window=10).mean()
 ifr_df['p_distal_smooth'] = ifr_df['p_distal'].rolling(window=10).mean()
+
+# plot p_aortic and p_distal plus peaks == 1 and 2 over time
+plt.figure(figsize=(10, 6))
+plt.plot(ifr_df['time'], ifr_df['p_aortic'], label='p_aortic', color='blue')
+plt.plot(ifr_df['time'], ifr_df['p_distal'], label='p_distal', color='green')
+plt.scatter(ifr_df['time'][ifr_df['peaks'] == 1], ifr_df['p_aortic'][ifr_df['peaks'] == 1], color='red', label='systolic peaks')
+plt.scatter(ifr_df['time'][ifr_df['peaks'] == 2], ifr_df['p_distal'][ifr_df['peaks'] == 2], color='orange', label='diastolic peaks')
+plt.xlabel('Time')
+plt.ylabel('Pressure')
+plt.title('p_aortic and p_distal over Time')
+plt.legend()
+plt.show()
+
+def preprocess_data(data):
+    """
+    Checks for the longest segment where peaks == 1 and 2 alternate, and keeps only that segment.
+    Peaks can have values of 1, 2, or 0 (non-peaks), and only alternating 1 and 2 are considered valid.
+    """
+    df_copy = data.copy()
+    peaks = df_copy['peaks'].tolist()
+    
+    longest_segment_indices = []
+    current_segment_indices = []
+    
+    for idx, peak in enumerate(peaks):
+        # Skip 0s since they do not represent valid peaks
+        if peak == 0:
+            continue
+        
+        if not current_segment_indices:
+            current_segment_indices.append(idx)
+        else:
+            last_peak = df_copy.loc[current_segment_indices[-1], 'peaks']
+            
+            # Check if current peak alternates with the last valid peak
+            if peak != last_peak:
+                current_segment_indices.append(idx)
+            else:
+                # If alternation breaks, finalize the current segment
+                if len(current_segment_indices) > len(longest_segment_indices):
+                    longest_segment_indices = current_segment_indices
+                current_segment_indices = [idx]  # Start a new segment with the current index
+    
+    # Check the last segment
+    if len(current_segment_indices) > len(longest_segment_indices):
+        longest_segment_indices = current_segment_indices
+    
+    # Keep only the rows corresponding to the longest alternating segment
+    data = df_copy.iloc[longest_segment_indices].reset_index(drop=True)
+
+    return data
+
+ifr_df = preprocess_data(ifr_df)
+
+# plot p_aortic and p_distal plus peaks == 1 and 2 over time
+plt.figure(figsize=(10, 6))
+plt.plot(ifr_df['time'], ifr_df['p_aortic'], label='p_aortic', color='blue')
+plt.plot(ifr_df['time'], ifr_df['p_distal'], label='p_distal', color='green')
+plt.scatter(ifr_df['time'][ifr_df['peaks'] == 1], ifr_df['p_aortic'][ifr_df['peaks'] == 1], color='red', label='systolic peaks')
+plt.scatter(ifr_df['time'][ifr_df['peaks'] == 2], ifr_df['p_distal'][ifr_df['peaks'] == 2], color='orange', label='diastolic peaks')
+plt.xlabel('Time')
+plt.ylabel('Pressure')
+plt.title('p_aortic and p_distal over Time')
+plt.legend()
+plt.show()
+
 
 def refind_peaks(df, signal='p_aortic_smooth'):
     """
@@ -69,7 +136,6 @@ def refind_peaks(df, signal='p_aortic_smooth'):
     df['peaks'] = df['peaks'].mask(df_copy_diastole['peaks'] == 2, 2)
 
     return df
-
 
 def find_saddle_point_with_trimmed_interval(df, signal='p_aortic_smooth'):
     """
@@ -140,6 +206,11 @@ def calculate_ifr(ifr_df):
 
     aortic_indices = df_copy.index[df_copy['peaks'] == 3].tolist()
     diastole_indices = df_copy.index[df_copy['peaks'] == 2].tolist()
+
+    print(aortic_indices)
+    print(diastole_indices)
+    print(df_copy.loc[aortic_indices[0], 'time'])
+    print(df_copy.loc[diastole_indices[0], 'time'])
 
     # check if time at first systole < time at first diastole if not remove first diastole
     if df_copy.loc[aortic_indices[0], 'time'] > df_copy.loc[diastole_indices[0], 'time']:

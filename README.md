@@ -52,7 +52,7 @@ To run the analysis a folder with the following tree structure is expected:
 Note: really required are only files ending with _ade.csv, _dobu.csv, and rest_1.csv. But other files automatically are ignored.
 
 ## Analysis performed
-...
+![Average Curve Plot All](average_curve_plot_all.png)
 
 ## Output
 ```
@@ -85,4 +85,5 @@ Note: really required are only files ending with _ade.csv, _dobu.csv, and rest_1
 ├── NARCO_119_eval
 │   ├── narco_119_pressure_ade.csv
 │   ├── narco_119_pressure_ade_average_curve_all.csv
+...
 ```

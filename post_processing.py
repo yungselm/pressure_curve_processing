@@ -15,12 +15,39 @@ class PostProcessing:
                 'iFR_mean_rest',
                 'mid_systolic_ratio_mean_rest',
                 'pdpa_mean_rest',
+                'iFR_mean_rest_low',
+                'mid_systolic_ratio_mean_rest_low',
+                'pdpa_mean_rest_low',
+                'iFR_mean_rest_high',
+                'mid_systolic_ratio_mean_rest_high',
+                'pdpa_mean_rest_high',
                 'iFR_mean_ado',
                 'mid_systolic_ratio_mean_ado',
                 'pdpa_mean_ado',
+                'iFR_mean_ado_low',
+                'mid_systolic_ratio_mean_ado_low',
+                'pdpa_mean_ado_low',
+                'iFR_mean_ado_high',
+                'mid_systolic_ratio_mean_ado_high',
+                'pdpa_mean_ado_high',
                 'iFR_mean_dobu',
                 'mid_systolic_ratio_mean_dobu',
                 'pdpa_mean_dobu',
+                'iFR_mean_dobu_low',
+                'mid_systolic_ratio_mean_dobu_low',
+                'pdpa_mean_dobu_low',
+                'iFR_mean_dobu_high',
+                'mid_systolic_ratio_mean_dobu_high',
+                'pdpa_mean_dobu_high',
+                'integral_aortic_rest',
+                'integral_distal_rest',
+                'integral_diff_rest',
+                'diastolic_integral_aortic_rest',
+                'diastolic_integral_distal_rest',
+                'diastolic_integral_diff_rest',
+                'systolic_integral_aortic_rest',
+                'systolic_integral_distal_rest',
+                'systolic_integral_diff_rest',
             ]
         )
         self.output_dir = output_dir
@@ -49,22 +76,65 @@ class PostProcessing:
 
         # Generate plots and save them
         self.plot_average_curve(data, file_name, output_dir)
+        self.plot_pdpa_iFR_midsystolic_over_time(data, file_name, output_dir)
 
         # Extract measurements and update results_df
         self.update_results_df(data, file_name)
 
     def update_results_df(self, data, file_name):
+        # Extract the correct patient_id from the file_name
+        patient_id = '_'.join(file_name.split('_')[:2])
         name = 'rest' if 'rest' in file_name else 'ado' if 'ade' in file_name else 'dobu'
-        iFR_mean, mid_systolic_ratio_mean, pdpa_mean, *_ = self.get_measurements(data)
-        
-        new_row = {
-            'patient_id': file_name,
+
+        # Get measurements for all data
+        (
+            iFR_mean,
+            mid_systolic_ratio_mean,
+            pdpa_mean,
+            _,
+            _,
+            _,
+            _,
+            diastolic_integral_aortic,
+            diastolic_integral_distal,
+            diastolic_integral_diff,
+            systolic_integral_aortic,
+            systolic_integral_distal,
+            systolic_integral_diff,
+        ) = self.get_measurements(data)
+
+        # Split data into low and high pd/pa groups and get their measurements
+        data_lower, data_higher = self.split_df_by_pdpa(data)
+        iFR_mean_low, mid_systolic_ratio_mean_low, pdpa_mean_low, *_ = self.get_measurements(data_lower)
+        iFR_mean_high, mid_systolic_ratio_mean_high, pdpa_mean_high, *_ = self.get_measurements(data_higher)
+
+        new_data = {
             f'iFR_mean_{name}': iFR_mean,
             f'mid_systolic_ratio_mean_{name}': mid_systolic_ratio_mean,
             f'pdpa_mean_{name}': pdpa_mean,
+            f'iFR_mean_{name}_low': iFR_mean_low,
+            f'mid_systolic_ratio_mean_{name}_low': mid_systolic_ratio_mean_low,
+            f'pdpa_mean_{name}_low': pdpa_mean_low,
+            f'iFR_mean_{name}_high': iFR_mean_high,
+            f'mid_systolic_ratio_mean_{name}_high': mid_systolic_ratio_mean_high,
+            f'pdpa_mean_{name}_high': pdpa_mean_high,
+            f'integral_aortic_{name}': diastolic_integral_aortic + systolic_integral_aortic,
+            f'integral_distal_{name}': diastolic_integral_distal + systolic_integral_distal,
+            f'integral_diff_{name}': diastolic_integral_diff + systolic_integral_diff,
+            f'diastolic_integral_aortic_{name}': diastolic_integral_aortic,
+            f'diastolic_integral_distal_{name}': diastolic_integral_distal,
+            f'diastolic_integral_diff_{name}': diastolic_integral_diff,
+            f'systolic_integral_aortic_{name}': systolic_integral_aortic,
+            f'systolic_integral_distal_{name}': systolic_integral_distal,
+            f'systolic_integral_diff_{name}': systolic_integral_diff,
         }
-        
-        self.result_df = pd.concat([self.result_df, pd.DataFrame([new_row])], ignore_index=True)
+
+        if patient_id in self.result_df['patient_id'].values:
+            self.result_df.loc[self.result_df['patient_id'] == patient_id, new_data.keys()] = new_data.values()
+        else:
+            new_row = {'patient_id': patient_id, **new_data}
+            self.result_df = pd.concat([self.result_df, pd.DataFrame([new_row])], ignore_index=True)
+
         self.result_df.to_excel(self.output_file, index=False)
 
     def get_average_curve_between_diastolic_peaks(self, ifr_df, signal='p_aortic_smooth', num_points=100):
@@ -135,7 +205,12 @@ class PostProcessing:
 
         df_low = df_copy[df_copy['pd/pa'] < lower_bound]
         df_high = df_copy[df_copy['pd/pa'] > upper_bound]
-        
+
+        # check if both DataFrames have at least 2 diastolic peaks otherwise return the original DataFrame
+        if len(df_low[df_low['peaks'] == 2]) < 2 or len(df_high[df_high['peaks'] == 2]) < 2:
+            logger.warning("Not enough diastolic peaks in the split DataFrames.")
+            return data.copy(), data.copy()
+
         return df_low, df_high
 
     def get_measurements(self, data):
@@ -149,6 +224,12 @@ class PostProcessing:
         iFR_mean = df_copy['iFR'].mean()
         mid_systolic_ratio_mean = df_copy['mid_systolic_ratio'].mean()
         pdpa_mean = df_copy['pd/pa'].mean()
+        diastolic_integral_aortic = df_copy['diastolic_integral_aortic'].mean()
+        diastolic_integral_distal = df_copy['diastolic_integral_distal'].mean()
+        diastolic_integral_diff = diastolic_integral_aortic - diastolic_integral_distal
+        systolic_integral_aortic = df_copy['systolic_integral_aortic'].mean()
+        systolic_integral_distal = df_copy['systolic_integral_distal'].mean()
+        systolic_integral_diff = systolic_integral_aortic - systolic_integral_distal
 
         # Get the start and end time of diastolic_ratio and aortic_ratio
         diastolic_indices = df_copy.index[df_copy['peaks'] == 2].tolist()
@@ -218,6 +299,12 @@ class PostProcessing:
             end_time_aortic_mean,
             start_time_diastolic_mean,
             end_time_diastolic_mean,
+            diastolic_integral_aortic,
+            diastolic_integral_distal,
+            diastolic_integral_diff,
+            systolic_integral_aortic,
+            systolic_integral_distal,
+            systolic_integral_diff,
         )
 
     def plot_average_curve(self, data, file_name, output_dir):
@@ -232,16 +319,20 @@ class PostProcessing:
         data_lower, data_higher = self.split_df_by_pdpa(data)
 
         # Define the groups to process
-        groups = {
-            'all': data,
-            'low': data_lower,
-            'high': data_higher
-        }
+        groups = {'all': data, 'low': data_lower, 'high': data_higher}
 
         for group_name, group_data in groups.items():
             # Calculate average curves
-            avg_time, avg_curve_aortic = self.get_average_curve_between_diastolic_peaks(group_data, signal='p_aortic_smooth', num_points=100)
-            _, avg_curve_distal = self.get_average_curve_between_diastolic_peaks(group_data, signal='p_distal_smooth', num_points=100)
+            avg_time, avg_curve_aortic = self.get_average_curve_between_diastolic_peaks(
+                group_data, signal='p_aortic_smooth', num_points=100
+            )
+            _, avg_curve_distal = self.get_average_curve_between_diastolic_peaks(
+                group_data, signal='p_distal_smooth', num_points=100
+            )
+
+            # create DF with avg_time, avg_curve_aortic and avg_curve_distal and save it to a csv file
+            df = pd.DataFrame({'time': avg_time, 'p_aortic_smooth': avg_curve_aortic, 'p_distal_smooth': avg_curve_distal})
+            df.to_csv(os.path.join(output_dir, f"{file_name}_average_curve_{group_name}.csv"), index=False)
 
             # Get measurements
             (
@@ -252,6 +343,7 @@ class PostProcessing:
                 end_time_aortic_mean,
                 start_time_diastolic_mean,
                 end_time_diastolic_mean,
+                *_,
             ) = self.get_measurements(group_data)
 
             # Plot the results
@@ -290,8 +382,34 @@ class PostProcessing:
             plt.ylabel('Pressure')
             plt.title(f'Average Curve between Diastolic Peaks ({name.capitalize()} - {group_name.capitalize()})')
             plt.legend()
-            
+
             # Save the plot in the same directory as the CSV file
             plot_filename = os.path.join(output_dir, f"{file_name}_average_curve_{group_name}.png")
             plt.savefig(plot_filename)
             plt.close()  # Close the plot to free up memory
+
+    def plot_pdpa_iFR_midsystolic_over_time(self, data, file_name, output_dir):
+        """
+        Plots the pd/pa ratio, iFR, and mid-systolic ratio over time for all patients.
+        """
+        name = 'rest' if 'rest' in file_name else 'ado' if 'ade' in file_name else 'dobu'
+        data = data.copy()
+        data = data.dropna(subset=['pd/pa', 'iFR', 'mid_systolic_ratio'])
+
+        # Initialize the plot
+        plt.figure(figsize=(12, 8))
+
+        # Plot the pd/pa ratio
+        plt.plot(data['time'], data['pd/pa'], label='pd/pa', color='blue')
+        plt.plot(data['time'], data['iFR'], label='iFR', color='green')
+        plt.plot(data['time'], data['mid_systolic_ratio'], label='mid-systolic ratio', color='red')
+        plt.hlines(y=0.8, xmin=data['time'].min(), xmax=data['time'].max(), color='red', linestyle='--', label='Threshold')
+        plt.xlabel('Time')
+        plt.ylabel('Value')
+        plt.title(f'pd/pa, iFR, and Mid-Systolic Ratio Over Time ({name.capitalize()})')
+        plt.legend()
+
+        # Save the plot in the same directory as the CSV file
+        plot_filename = os.path.join(output_dir, f"{file_name}_pdpa_iFR_midsystolic_over_time.png")
+        plt.savefig(plot_filename)
+        plt.close()  # Close the plot to free up memory

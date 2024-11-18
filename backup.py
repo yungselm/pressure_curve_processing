@@ -8,7 +8,8 @@ from scipy.signal import butter, filtfilt
 
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_rest_1.csv')
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_dobu.csv')
-ifr_df = pd.read_csv('NARCO_119_eval/narco_119_pressure_dobu.csv')
+# ifr_df = pd.read_csv('NARCO_119_eval/narco_119_pressure_dobu.csv')
+ifr_df = pd.read_csv(r'C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test\processed\NARCO_47_eval\narco_47_pressure_dobu.csv')
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_ade.csv')
 # ifr_df = ifr_df.head(2000)
 
@@ -296,7 +297,9 @@ def get_average_curve_between_diastolic_peaks(ifr_df, signal='p_aortic_smooth', 
     - avg_time (np.ndarray): The normalized time axis corresponding to the average curve.
     """
     # Extract indices of diastolic peaks
+    print(ifr_df[ifr_df['peaks'] == 2])
     diastolic_indices = ifr_df.index[ifr_df['peaks'] == 2].tolist()
+    print(diastolic_indices)
 
     if len(diastolic_indices) < 2:
         raise ValueError("Not enough diastolic peaks to calculate intervals.")
@@ -351,6 +354,11 @@ def split_df_by_pdpa(data):
 
     df_low = df_copy[df_copy['pd/pa'] < lower_bound]
     df_high = df_copy[df_copy['pd/pa'] > upper_bound]
+
+    # check if both DataFrames have at least 2 diastolic peaks otherwise return the original DataFrame
+    if len(df_low[df_low['peaks'] == 2]) < 2 or len(df_high[df_high['peaks'] == 2]) < 2:
+        logger.warning("Not enough diastolic peaks in the split DataFrames.")
+        return data.copy(), data.copy()
     
     return df_low, df_high
 
@@ -477,18 +485,23 @@ ifr_df = find_saddle_point_with_trimmed_interval(ifr_df, signal='p_aortic_smooth
 ifr_df = calculate_ifr(ifr_df)
 ifr_df = calculate_systolic_measures(ifr_df)
 
-print(len(ifr_df[ifr_df['peaks'] == 2]))
 # create average curve between diastolic peaks for p_aortic_smooth and p_distal_smooth and plto it
 avg_time, avg_curve_aortic = get_average_curve_between_diastolic_peaks(ifr_df, signal='p_aortic_smooth', num_points=100)
 avg_time, avg_curve_distal = get_average_curve_between_diastolic_peaks(ifr_df, signal='p_distal_smooth', num_points=100)
+logger.info(f'average for original df works')
 
 low_df, high_df = split_df_by_pdpa(ifr_df)
 
+print(len(low_df))
+print(len(high_df))
+
 avg_time_low, avg_curve_aortic_low = get_average_curve_between_diastolic_peaks(low_df, signal='p_aortic_smooth', num_points=100)
 avg_time_low, avg_curve_distal_low = get_average_curve_between_diastolic_peaks(low_df, signal='p_distal_smooth', num_points=100)
+logger.info(f'average for low df works')
 
 avg_time_high, avg_curve_aortic_high = get_average_curve_between_diastolic_peaks(high_df, signal='p_aortic_smooth', num_points=100)
 avg_time_high, avg_curve_distal_high = get_average_curve_between_diastolic_peaks(high_df, signal='p_distal_smooth', num_points=100)
+logger.info(f'average for high df works')
 
 plot_average_curve(ifr_df, name='all')
 plot_average_curve(low_df, name='lower')

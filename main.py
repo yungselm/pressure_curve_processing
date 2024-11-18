@@ -6,6 +6,15 @@ from loguru import logger
 from signal_processing import SignalProcessing
 from post_processing import PostProcessing
 
+import os
+import glob
+import hydra
+from omegaconf import DictConfig
+from loguru import logger
+from signal_processing import SignalProcessing
+from post_processing import PostProcessing
+
+
 @hydra.main(version_base=None, config_path=".", config_name="config")
 def main(cfg: DictConfig):
     """
@@ -31,10 +40,12 @@ def main(cfg: DictConfig):
     for file_path in csv_files:
         # Process only files with required naming patterns
         if any(keyword in file_path for keyword in ["pressure_ade", "pressure_dobu", "pressure_rest"]):
-            subdir = os.path.relpath(os.path.dirname(file_path), input_dir)
-            output_path = os.path.join(output_dir_data, subdir, os.path.basename(file_path))
+            # Determine subdirectory structure for the output directory
+            subdir = os.path.relpath(os.path.dirname(file_path), input_dir)  # Get relative subdir path
+            output_subdir = os.path.join(output_dir_data, subdir)  # This should go inside test/processed/<subdir>
+            os.makedirs(output_subdir, exist_ok=True)  # Ensure subdirectories exist
 
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)  # Ensure subdirectories exist
+            output_path = os.path.join(output_subdir, os.path.basename(file_path))  # Save files inside the correct subdir
 
             try:
                 processor = SignalProcessing(file_path, output_path)
@@ -48,7 +59,9 @@ def main(cfg: DictConfig):
 
     # Post-processing
     logger.info("Starting post-processing.")
-    post_processor = PostProcessing(output_dir_ivus)
+    post_processor = PostProcessing(output_dir_data, output_dir_ivus)  # Ensure it's called with the correct dirs
+    post_processor()
 
 if __name__ == "__main__":
     main()
+

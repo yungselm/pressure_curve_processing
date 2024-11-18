@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+from loguru import logger
 
 
 class PostProcessing:
@@ -87,6 +88,10 @@ def split_df_by_pdpa(data):
     """
     Splits the input DataFrame into two separate DataFrames based on the pd/pa ratio.
     """
+    if len(data) < 1000:
+        logger.warning("Not enough data to split by low and high pd/pa ratio.")
+        return data.copy(), data.copy()
+
     df_copy = data.copy()
 
     # get lower 25% of pd/pa ratio
@@ -95,7 +100,7 @@ def split_df_by_pdpa(data):
 
     df_low = df_copy[df_copy['pd/pa'] < lower_bound]
     df_high = df_copy[df_copy['pd/pa'] > upper_bound]
-
+    
     return df_low, df_high
 
 
@@ -111,7 +116,75 @@ def get_measurements(data):
     mid_systolic_ratio_mean = df_copy['mid_systolic_ratio'].mean()
     pdpa_mean = df_copy['pd/pa'].mean()
 
-    return iFR_mean, mid_systolic_ratio_mean, pdpa_mean
+    # Get the start and end time of diastolic_ratio and aortic_ratio
+    diastolic_indices = df_copy.index[df_copy['peaks'] == 2].tolist()
+
+    if len(diastolic_indices) < 2:
+        raise ValueError("Not enough diastolic peaks to calculate intervals.")
+
+    # Initialize a list to store all rescaled intervals
+    start_time_aortic = []
+    end_time_aortic = []
+    start_time_diastolic = []
+    end_time_diastolic = []
+
+    for i in range(len(diastolic_indices) - 1):
+        start_idx = diastolic_indices[i]
+        end_idx = diastolic_indices[i + 1]
+
+        start_t = df_copy.loc[start_idx, 'time']
+        end_t = df_copy.loc[end_idx, 'time']
+        time_range = end_t - start_t
+
+        # Extract the interval data for aortic_ratio
+        interval_data = df_copy.loc[start_idx:end_idx, 'aortic_ratio']
+
+        # Find the first and last non-NaN indices
+        first_valid_idx = interval_data.first_valid_index()
+        last_valid_idx = interval_data.last_valid_index()
+
+        if first_valid_idx is not None:
+            # Normalize the time of the first valid value
+            first_time = df_copy.loc[first_valid_idx, 'time']
+            normalized_start = (first_time - start_t) / time_range
+            start_time_aortic.append(normalized_start)
+
+        if last_valid_idx is not None:
+            # Normalize the time of the last valid value
+            last_time = df_copy.loc[last_valid_idx, 'time']
+            normalized_end = (last_time - start_t) / time_range
+            end_time_aortic.append(normalized_end)
+
+        # Repeat the same process for diastolic_ratio
+        interval_data = df_copy.loc[start_idx:end_idx, 'diastolic_ratio']
+
+        first_valid_idx = interval_data.first_valid_index()
+        last_valid_idx = interval_data.last_valid_index()
+
+        if first_valid_idx is not None:
+            first_time = df_copy.loc[first_valid_idx, 'time']
+            normalized_start = (first_time - start_t) / time_range
+            start_time_diastolic.append(normalized_start)
+
+        if last_valid_idx is not None:
+            last_time = df_copy.loc[last_valid_idx, 'time']
+            normalized_end = (last_time - start_t) / time_range
+            end_time_diastolic.append(normalized_end)
+
+    start_time_aortic_mean = np.mean(start_time_aortic)
+    end_time_aortic_mean = np.mean(end_time_aortic)
+    start_time_diastolic_mean = np.mean(start_time_diastolic)
+    end_time_diastolic_mean = np.mean(end_time_diastolic)
+
+    return (
+        iFR_mean,
+        mid_systolic_ratio_mean,
+        pdpa_mean,
+        start_time_aortic_mean,
+        end_time_aortic_mean,
+        start_time_diastolic_mean,
+        end_time_diastolic_mean,
+    )
 
 
 def plot_average_curve(data, name='all'):
@@ -146,16 +219,24 @@ def plot_average_curve(data, name='all'):
         raise ValueError("Invalid name. Choose from 'all', 'lower', or 'high'.")
 
     # get all measurements
-    iFR_mean, mid_systolic_ratio_mean, pdpa_mean = get_measurements(data)
+    (
+        iFR_mean,
+        mid_systolic_ratio_mean,
+        pdpa_mean,
+        start_time_aortic_mean,
+        end_time_aortic_mean,
+        start_time_diastolic_mean,
+        end_time_diastolic_mean,
+    ) = get_measurements(data)
 
     # add start and end time of aortic_ratio and diastolic_ratio to the plot as vertical lines, and add ifr, mid_systolic_ratio and pd_pa as text
     plt.figure(figsize=(10, 6))
     plt.plot(avg_time, avg_curve_aortic, label='p_aortic_smooth', color='blue')
     plt.plot(avg_time, avg_curve_distal, label='p_distal_smooth', color='green')
-    plt.axvline(x=0.25, color='red', linestyle='--')
-    plt.axvline(x=0.4, color='red', linestyle='--')
-    plt.axvline(x=0.6, color='blue', linestyle='--')
-    plt.axvline(x=0.97, color='blue', linestyle='--')
+    plt.axvline(x=start_time_aortic_mean, color='red', linestyle='--')
+    plt.axvline(x=end_time_aortic_mean, color='red', linestyle='--')
+    plt.axvline(x=start_time_diastolic_mean, color='blue', linestyle='--')
+    plt.axvline(x=end_time_diastolic_mean, color='blue', linestyle='--')
     plt.text(
         0.5,
         0.9,

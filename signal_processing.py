@@ -239,9 +239,9 @@ class SignalProcessing:
 
                     self.data.at[diastole_idx, 'systolic_integral_diff'] = self.data.at[diastole_idx, 'systolic_integral_aortic'] - self.data.at[diastole_idx, 'systolic_integral_distal']
 
-                # Remove 25% at each end
-                interval_aortic = interval_aortic[int(len(interval_aortic) * 0.25):int(len(interval_aortic) * 0.75)]
-                interval_distal = interval_distal[int(len(interval_distal) * 0.25):int(len(interval_distal) * 0.75)]
+                # Remove 33% at each end
+                interval_aortic = interval_aortic[int(len(interval_aortic) * 0.333):int(len(interval_aortic) * 0.667)]
+                interval_distal = interval_distal[int(len(interval_distal) * 0.333):int(len(interval_distal) * 0.667)]
 
                 # Skip if intervals are empty after trimming
                 if interval_aortic.empty or interval_distal.empty:

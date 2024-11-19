@@ -1,8 +1,8 @@
 # pressure_curve_processing
 ## Abstract
-This code analysis invasively measured curves in the setting of anomalous aortic origin of a coronary artery (AAOCA). Specifically, it identifies the point of aortic valve closer and then calculates instantaneous wave-free ratio, mid-systolic pressure ratio and the integral of systolic phase and diastolic phase for the Pa curve and Pd curve and their difference.\\
-The analysis is automatically performed for all tests performed (during rest with Pd/Pa, $FFR_\text{Adenosine}$ and $FFR_\text{Dobutamine}$ during dobutamine-atropine-volume challenge).\\
-Additionally, for Pressure measurementes over a long period of time (i.e. $FFR_Adenosine$ and $FFR_Dobutamine$) additional analysis for the 25th percentile and 75th percentile of Pd/Pa Values are performed.\\
+This code analysis invasively measured curves in the setting of anomalous aortic origin of a coronary artery (AAOCA). Specifically, it identifies the point of aortic valve closer and then calculates instantaneous wave-free ratio, mid-systolic pressure ratio and the integral of systolic phase and diastolic phase for the Pa curve and Pd curve and their difference. \newline
+The analysis is automatically performed for all tests performed (during rest with Pd/Pa, $FFR_\text{Adenosine}$ and $FFR_\text{Dobutamine}$ during dobutamine-atropine-volume challenge).\newline
+Additionally, for Pressure measurementes over a long period of time (i.e. $FFR_\text{Adenosine}$ and $FFR_\text{Dobutamine}$) additional analysis for the 25th percentile and 75th percentile of Pd/Pa Values are performed.\newline
 Lastly, the code produces averaged pressure curves are created for Pa and Pd for all phases over recording period and again 25th and 75th percentile.
 
 ## Installation
@@ -57,9 +57,9 @@ Note: really required are only files ending with _ade.csv, _dobu.csv, and rest_1
 ## Output
 For every .csv file in subdir a dataframe is created which adds the following columns to existing dataframe: `diastolic_integral_aortic`,  `diastolic_integral_distal`, `diastolic_integral_diff`, `diastolic_ratio`, `iFR`, `systolic_integral_aortic`, `systolic_integral_distal`, `systolic_integral_diff`, `aortic_ratio` and `mid_systolic_ratio`.
 Additionally and averaged curve is calculated (for all, 25th percentile and 75th percentile) and the curve data is saved as a .csv and a .png is saved.
-![Average Curve Plot All](average_curve_plot_all.png)
+![Average Curve Plot All](media/average_curve_plot_all.png)
 A plot for the iFR, mid-systolic ratio and pd/pa over time is also provided for every type of pressure measurement.
-![Pressure over Time (Dobutamine)](ifr_plot.png)
+![Pressure over Time (Dobutamine)](media/ifr_plot.png)
 The output in the subdir looks the following
 ```
 .

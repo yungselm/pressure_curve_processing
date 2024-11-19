@@ -3,53 +3,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 from loguru import logger
+import yaml
 
 
 class PostProcessing:
     def __init__(self, input_dir, output_dir):
+        # Load configuration
+        with open('config.yaml', 'r') as file:
+            config = yaml.safe_load(file)
+        
         self.ifr_df = pd.DataFrame()
-        # initialize an empty dataframe with predefined columns
-        self.result_df = pd.DataFrame(
-            columns=[
-                'patient_id',
-                'iFR_mean_rest',
-                'mid_systolic_ratio_mean_rest',
-                'pdpa_mean_rest',
-                'iFR_mean_rest_low',
-                'mid_systolic_ratio_mean_rest_low',
-                'pdpa_mean_rest_low',
-                'iFR_mean_rest_high',
-                'mid_systolic_ratio_mean_rest_high',
-                'pdpa_mean_rest_high',
-                'iFR_mean_ado',
-                'mid_systolic_ratio_mean_ado',
-                'pdpa_mean_ado',
-                'iFR_mean_ado_low',
-                'mid_systolic_ratio_mean_ado_low',
-                'pdpa_mean_ado_low',
-                'iFR_mean_ado_high',
-                'mid_systolic_ratio_mean_ado_high',
-                'pdpa_mean_ado_high',
-                'iFR_mean_dobu',
-                'mid_systolic_ratio_mean_dobu',
-                'pdpa_mean_dobu',
-                'iFR_mean_dobu_low',
-                'mid_systolic_ratio_mean_dobu_low',
-                'pdpa_mean_dobu_low',
-                'iFR_mean_dobu_high',
-                'mid_systolic_ratio_mean_dobu_high',
-                'pdpa_mean_dobu_high',
-                'integral_aortic_rest',
-                'integral_distal_rest',
-                'integral_diff_rest',
-                'diastolic_integral_aortic_rest',
-                'diastolic_integral_distal_rest',
-                'diastolic_integral_diff_rest',
-                'systolic_integral_aortic_rest',
-                'systolic_integral_distal_rest',
-                'systolic_integral_diff_rest',
-            ]
-        )
+        # initialize an empty dataframe with columns from config
+        self.result_df = pd.DataFrame(columns=config['main']['dataframe_columns'])
         self.output_dir = output_dir
         self.output_file = os.path.join(output_dir, 'results.xlsx')
         # Ensure the output directory exists
@@ -91,6 +56,8 @@ class PostProcessing:
             iFR_mean,
             mid_systolic_ratio_mean,
             pdpa_mean,
+            mean_systolic_pressure,
+            mean_diastolic_pressure,
             _,
             _,
             _,
@@ -105,8 +72,8 @@ class PostProcessing:
 
         # Split data into low and high pd/pa groups and get their measurements
         data_lower, data_higher = self.split_df_by_pdpa(data)
-        iFR_mean_low, mid_systolic_ratio_mean_low, pdpa_mean_low, *_ = self.get_measurements(data_lower)
-        iFR_mean_high, mid_systolic_ratio_mean_high, pdpa_mean_high, *_ = self.get_measurements(data_higher)
+        iFR_mean_low, mid_systolic_ratio_mean_low, pdpa_mean_low, mean_systolic_pressure_low, mean_diastolic_pressure_low, *_ = self.get_measurements(data_lower)
+        iFR_mean_high, mid_systolic_ratio_mean_high, pdpa_mean_high, mean_systolic_pressure_high, mean_diastolic_pressure_high, *_ = self.get_measurements(data_higher)
 
         new_data = {
             f'iFR_mean_{name}': iFR_mean,
@@ -118,6 +85,12 @@ class PostProcessing:
             f'iFR_mean_{name}_high': iFR_mean_high,
             f'mid_systolic_ratio_mean_{name}_high': mid_systolic_ratio_mean_high,
             f'pdpa_mean_{name}_high': pdpa_mean_high,
+            f'mean_diastolic_pressure_{name}': mean_diastolic_pressure,
+            f'mean_systolic_pressure_{name}': mean_systolic_pressure,
+            f'mean_diastolic_pressure_{name}_low': mean_diastolic_pressure_low,
+            f'mean_systolic_pressure_{name}_low': mean_systolic_pressure_low,
+            f'mean_diastolic_pressure_{name}_high': mean_diastolic_pressure_high,
+            f'mean_systolic_pressure_{name}_high': mean_systolic_pressure_high,
             f'integral_aortic_{name}': diastolic_integral_aortic + systolic_integral_aortic,
             f'integral_distal_{name}': diastolic_integral_distal + systolic_integral_distal,
             f'integral_diff_{name}': diastolic_integral_diff + systolic_integral_diff,
@@ -224,12 +197,15 @@ class PostProcessing:
         iFR_mean = df_copy['iFR'].mean()
         mid_systolic_ratio_mean = df_copy['mid_systolic_ratio'].mean()
         pdpa_mean = df_copy['pd/pa'].mean()
+        mean_systolic_pressure = df_copy[df_copy['peaks'] == 1]['p_aortic'].mean()
+        mean_diastolic_pressure = df_copy[df_copy['peaks'] == 2]['p_aortic'].mean()
         diastolic_integral_aortic = df_copy['diastolic_integral_aortic'].mean()
         diastolic_integral_distal = df_copy['diastolic_integral_distal'].mean()
         diastolic_integral_diff = diastolic_integral_aortic - diastolic_integral_distal
         systolic_integral_aortic = df_copy['systolic_integral_aortic'].mean()
         systolic_integral_distal = df_copy['systolic_integral_distal'].mean()
         systolic_integral_diff = systolic_integral_aortic - systolic_integral_distal
+
 
         # Get the start and end time of diastolic_ratio and aortic_ratio
         diastolic_indices = df_copy.index[df_copy['peaks'] == 2].tolist()
@@ -295,6 +271,8 @@ class PostProcessing:
             iFR_mean,
             mid_systolic_ratio_mean,
             pdpa_mean,
+            mean_systolic_pressure,
+            mean_diastolic_pressure,
             start_time_aortic_mean,
             end_time_aortic_mean,
             start_time_diastolic_mean,

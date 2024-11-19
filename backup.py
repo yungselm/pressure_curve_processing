@@ -528,17 +528,19 @@ ifr_df.to_csv('narco_119_pressure_dobu_iFR.csv', index=False)
 # keep only lines with either iFR or mid_systolic_ratio not NaN
 ifr_df = ifr_df[~(ifr_df['iFR'].isna() & ifr_df['mid_systolic_ratio'].isna())]
 
+# filter time > 180
+ifr_df = ifr_df[(ifr_df['time'] >= 180) & (ifr_df['time'] <= 300)]
 # plot iFR, mid_systolic_ratio and pd/pa over time
 # Save the plot as a .png file
 plt.figure(figsize=(10, 6))
-plt.plot(ifr_df['time'], ifr_df['iFR'], label='iFR', color='blue')
-plt.plot(ifr_df['time'], ifr_df['mid_systolic_ratio'], label='mid_systolic_ratio', color='green')
-plt.plot(ifr_df['time'], ifr_df['pd/pa'], label='pd/pa', color='red')
+plt.plot(ifr_df['time'], ifr_df['iFR'], label='iFR', color='#6EB5FF')
+plt.plot(ifr_df['time'], ifr_df['mid_systolic_ratio'], label='mid_systolic_ratio', color='#AFF8DB')
+plt.plot(ifr_df['time'], ifr_df['pd/pa'], label='pd/pa', color='#FFABAB')
 # plot horizontal line at 0.8
 plt.axhline(y=0.8, color='r', linestyle='--')
 plt.xlabel('Time')
 plt.ylabel('Pressure')
-plt.title('iFR, mid_systolic_ratio and pd/pa over Time')
+plt.title('iFR, mid_systolic_ratio and Pd/Pa over Time')
 plt.legend()
 plt.savefig("ifr_plot.png")  # Save plot to a file
 plt.close()  # Close the plot to free up memory

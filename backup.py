@@ -8,8 +8,8 @@ from scipy.signal import butter, filtfilt
 
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_rest_1.csv')
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_dobu.csv')
-# ifr_df = pd.read_csv('NARCO_119_eval/narco_119_pressure_dobu.csv')
-ifr_df = pd.read_csv(r'C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test\processed\NARCO_47_eval\narco_47_pressure_dobu.csv')
+ifr_df = pd.read_csv('NARCO_119_eval/narco_119_pressure_dobu.csv')
+# ifr_df = pd.read_csv(r'C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test\NARCO_47_eval\narco_47_pressure_dobu.csv')
 # ifr_df = pd.read_csv('NARCO_10_eval/narco_10_pressure_ade.csv')
 # ifr_df = ifr_df.head(2000)
 
@@ -439,7 +439,7 @@ def get_measurements(data):
 
 def plot_average_curve(data, name='all'):
     """
-    Plots the average curve between diastolic peaks for p_aortic_smooth and p_distal_smooth.
+    Plots the average curve between diastolic peaks for p_aortic_smooth and p_distal_smooth in dark mode.
     """
     if name == 'all':
         avg_time, avg_curve_aortic = get_average_curve_between_diastolic_peaks(data, signal='p_aortic_smooth', num_points=100)
@@ -455,27 +455,42 @@ def plot_average_curve(data, name='all'):
         file_name = 'average_curve_plot_high.png'
     else:
         raise ValueError("Invalid name. Choose from 'all', 'lower', or 'high'.")
-    
-    # get all measurements
+
+    # Get all measurements
     iFR_mean, mid_systolic_ratio_mean, pdpa_mean, start_time_aortic_mean, end_time_aortic_mean, start_time_diastolic_mean, end_time_diastolic_mean = get_measurements(data)
 
-    # add start and end time of aortic_ratio and diastolic_ratio to the plot as vertical lines, and add ifr, mid_systolic_ratio and pd_pa as text
-    plt.figure(figsize=(10, 6))
-    plt.plot(avg_time, avg_curve_aortic, label='p_aortic_smooth', color='blue')
-    plt.plot(avg_time, avg_curve_distal, label='p_distal_smooth', color='green')
-    plt.axvline(x=start_time_aortic_mean, color='red', linestyle='--')
-    plt.axvline(x=end_time_aortic_mean, color='red', linestyle='--')
-    plt.axvline(x=start_time_diastolic_mean, color='blue', linestyle='--')
-    plt.axvline(x=end_time_diastolic_mean, color='blue', linestyle='--')
-    plt.text(0.5, 0.9, f'iFR: {iFR_mean:.2f}', horizontalalignment='center', verticalalignment='center', transform=plt.gca().transAxes)
-    plt.text(0.5, 0.85, f'mid_systolic_ratio: {mid_systolic_ratio_mean:.2f}', horizontalalignment='center', verticalalignment='center', transform=plt.gca().transAxes)
-    plt.text(0.5, 0.8, f'pd/pa: {pdpa_mean:.2f}', horizontalalignment='center', verticalalignment='center', transform=plt.gca().transAxes)
-    plt.xlabel('Time')
-    plt.ylabel('Pressure')
-    plt.title(f'Average Curve between Diastolic Peaks ({name})')
+    # Set dark mode style
+    plt.style.use('dark_background')
+
+    # Plot the average curves
+    plt.figure(figsize=(9, 5))
+    plt.plot(avg_time, avg_curve_aortic, label='p_aortic_smooth', color='#AFF8DB', linewidth=2)
+    plt.plot(avg_time, avg_curve_distal, label='p_distal_smooth', color='#FFF5BA', linewidth=2)
+
+    # Add vertical lines for start and end times
+    plt.axvline(x=start_time_aortic_mean, color='#FFABAB', linestyle='--', label='Aortic Start/End')
+    plt.axvline(x=end_time_aortic_mean, color='#FFABAB', linestyle='--')
+    plt.axvline(x=start_time_diastolic_mean, color='#85E3FF', linestyle='--', label='Diastolic Start/End')
+    plt.axvline(x=end_time_diastolic_mean, color='#85E3FF', linestyle='--')
+
+    # Add annotations in the upper-right corner
+    plt.text(0.95, 0.9, f'iFR: {iFR_mean:.2f}', color='white', 
+             horizontalalignment='right', verticalalignment='center', transform=plt.gca().transAxes)
+    plt.text(0.95, 0.85, f'Mid-Systolic Ratio: {mid_systolic_ratio_mean:.2f}', color='white',
+             horizontalalignment='right', verticalalignment='center', transform=plt.gca().transAxes)
+    plt.text(0.95, 0.8, f'Pd/Pa: {pdpa_mean:.2f}', color='white', 
+             horizontalalignment='right', verticalalignment='center', transform=plt.gca().transAxes)
+
+    # Set labels and title
+    plt.xlabel('Time', color='white')
+    plt.ylabel('Pressure', color='white')
+    plt.title(f'Averaged Pressure Curves', color='white')
     plt.legend()
-    plt.savefig(file_name)  # Save plot to a file
+    
+    # Save plot to a file
+    plt.savefig(file_name, bbox_inches='tight', facecolor='black')
     plt.close()  # Close the plot to free up memory
+
 
 print(len(ifr_df))
 ifr_df = preprocess_data(ifr_df)

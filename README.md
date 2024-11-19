@@ -1,6 +1,9 @@
 # pressure_curve_processing
 ## Abstract
-
+This code analysis invasively measured curves in the setting of anomalous aortic origin of a coronary artery (AAOCA). Specifically, it identifies the point of aortic valve closer and then calculates instanstaneous wave-free ratio, mid-systolic pressure ratio and the integral of systolic phase and diastolic phase for the Pa curve and Pd curve and their difference.
+The analysis is automatically performed for all tests performed (during rest with Pd/Pa, $FFR_Adenosine$ and $FFR_Dobutamine$ during dobutamine-atropine-volume challenge).
+Additionally, for Pressure measurementes over a long period of time (i.e. $FFR_Adenosine$ and $FFR_Dobutamine$) additional analysis for the 25th percentile and 75th percentile of Pd/Pa Values are performed.
+Lastly, the code produces averaged pressure curves are created for Pa and Pd for all phases over recording period and again 25th and 75th percentile.
 
 ## Installation
 

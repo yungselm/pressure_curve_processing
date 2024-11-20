@@ -1,9 +1,9 @@
 # pressure_curve_processing
 ## Abstract
-This code analysis invasively measured curves in the setting of anomalous aortic origin of a coronary artery (AAOCA). Specifically, it identifies the point of aortic valve closer and then calculates instantaneous wave-free ratio, mid-systolic pressure ratio and the integral of systolic phase and diastolic phase for the Pa curve and Pd curve and their difference. \newline
-The analysis is automatically performed for all tests performed (during rest with Pd/Pa, $FFR_\text{Adenosine}$ and $FFR_\text{Dobutamine}$ during dobutamine-atropine-volume challenge).\newline
-Additionally, for Pressure measurementes over a long period of time (i.e. $FFR_\text{Adenosine}$ and $FFR_\text{Dobutamine}$) additional analysis for the 25th percentile and 75th percentile of Pd/Pa Values are performed.\newline
-Lastly, the code produces averaged pressure curves are created for Pa and Pd for all phases over recording period and again 25th and 75th percentile.
+This code analyzes invasively measured pressure curves in the context of anomalous aortic origin of a coronary artery (AAOCA). Specifically, it identifies the point of aortic valve closure and then calculates the instantaneous wave-free ratio, mid-systolic pressure ratio, and the integral of the systolic and diastolic phases for the Pa and Pd curves and their differences.<br>
+The analysis is automatically performed for all tests conducted (during rest with Pd/Pa, $FFR_\text{Adenosine}$, and $FFR_\text{Dobutamine}$ during the dobutamine-atropine-volume challenge).<br>
+Additionally, for pressure measurements over a long period (i.e., $FFR_\text{Adenosine}$ and $FFR_\text{Dobutamine}$), additional analysis for the 25th percentile and 75th percentile of Pd/Pa values is performed.<br>
+Lastly, the code produces averaged pressure curves for Pa and Pd for all phases over the recording period and again for the 25th and 75th percentiles.
 
 ## Installation
 

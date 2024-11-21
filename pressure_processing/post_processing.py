@@ -206,7 +206,6 @@ class PostProcessing:
         systolic_integral_distal = df_copy['systolic_integral_distal'].mean()
         systolic_integral_diff = systolic_integral_aortic - systolic_integral_distal
 
-
         # Get the start and end time of diastolic_ratio and aortic_ratio
         diastolic_indices = df_copy.index[df_copy['peaks'] == 2].tolist()
 
@@ -317,6 +316,8 @@ class PostProcessing:
                 iFR_mean,
                 mid_systolic_ratio_mean,
                 pdpa_mean,
+                _,
+                _,
                 start_time_aortic_mean,
                 end_time_aortic_mean,
                 start_time_diastolic_mean,

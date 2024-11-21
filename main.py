@@ -3,16 +3,8 @@ import glob
 import hydra
 from omegaconf import DictConfig
 from loguru import logger
-from signal_processing import SignalProcessing
-from post_processing import PostProcessing
-
-import os
-import glob
-import hydra
-from omegaconf import DictConfig
-from loguru import logger
-from signal_processing import SignalProcessing
-from post_processing import PostProcessing
+from pressure_processing.signal_processing import SignalProcessing
+from pressure_processing.post_processing import PostProcessing
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")

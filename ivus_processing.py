@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import os
 
 pd.options.mode.chained_assignment = None
 
@@ -12,6 +13,12 @@ df_rest = pd.read_csv(
 df_dobu = pd.read_csv(
     'C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_251_stress.txt', sep='\t'
 )
+# df_rest = pd.read_csv(
+#     'C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_119_rest.txt', sep='\t'
+# )
+# df_dobu = pd.read_csv(
+#     'C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_119_stress.txt', sep='\t'
+# )
 
 PULLBACK_SPEED = 1  # mm/s
 START_FRAME = 0
@@ -174,6 +181,14 @@ def plot_global(df_rest, df_dobu):
 
     plt.show()
 
+def create_df_from_dir(path):
+    """Creates a dataframe from a directory containing txt files."""
+    df = pd.DataFrame(columns=['filename', 'phase_order', 'global_order'])
+    for file in os.listdir(path):
+        if file.endswith('.txt'):
+            df = pd.concat([df, pd.DataFrame([{'filename': file, 'phase_order': np.nan, 'global_order': np.nan}])], ignore_index=True)
+    df.to_csv(os.path.join(path, 'input_parameters.csv'), index=False)
+
 df_rest = prep_data(df_rest, START_FRAME, FRAME_RATE, PULLBACK_SPEED)
 df_dobu = prep_data(df_dobu, START_FRAME, FRAME_RATE, PULLBACK_SPEED)
 
@@ -185,3 +200,5 @@ df_dobu = fit_curve_global(df_dobu)
 
 plot_data(df_rest, df_dobu)
 plot_global(df_rest, df_dobu)
+
+create_df_from_dir('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports')

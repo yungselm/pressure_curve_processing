@@ -2,66 +2,134 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+from tqdm import tqdm
 
-diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/Rest/PDBHSCIO_diastolic.npy')
-systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/Rest/PDBHSCIO_systolic.npy')
+# diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/stress/PD616KK1_diastolic.npy')
+# systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/stress/PD616KK1_systolic.npy')
 
-diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/Rest/PDBHSCIO_report.txt', sep='\t')
-diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
-
-# diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_diastolic.npy')
-# systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_systolic.npy')
-
-# diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_report.txt', sep='\t')
+# diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_234_stress.txt', sep='\t')
 # diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
+
+# diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/rest/PD2EZDBF_diastolic.npy')
+# systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/rest/PD2EZDBF_systolic.npy')
+
+# diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_234_rest.txt', sep='\t')
+# diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
+
+diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_diastolic.npy')
+systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_systolic.npy')
+
+diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_report.txt', sep='\t')
+diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
 
 def crop_image(image, x1, x2, y1, y2):
     return image[x1:x2, y1:y2]
 
 # Create a new array for the cropped images
-cropped_diastolic_frames = np.zeros((diastolic_frames.shape[0], 412, 412))
+cropped_diastolic_frames = np.zeros((diastolic_frames.shape[0], 462, 462))
 
 # Crop all images to the same size in diastolic_frames, by removing 50 from every side
 for idx, frame in enumerate(diastolic_frames):
-    cropped_diastolic_frames[idx] = crop_image(frame, 50, 462, 50, 462)
+    cropped_diastolic_frames[idx] = crop_image(frame, 50, 512, 25, 487)
 
 # Update diastolic_frames to the cropped version
 diastolic_frames = cropped_diastolic_frames
 
-# diastolic_frames is a (39, 512, 512) array. I want to get every slice of the 39 seperately and give them a index, then the last slide can stay, and the others should be reshuffled. based on which is correlated the most to the last slice
-def correlation(slice1, slice2):
-    corr = np.corrcoef(slice1.ravel(), slice2.ravel())[0, 1]
-    return corr
+import numpy as np
+from scipy.spatial.distance import cdist
+import cv2
 
-last_slice = diastolic_frames[-1]
+def rotate_image(image, angle):
+    """Rotate an image by a specified angle."""
+    center = tuple(np.array(image.shape[1::-1]) / 2)
+    rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated_image = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
+    return rotated_image
 
-indices_to_test = np.array(range(len(diastolic_frames) - 1))
-indices_to_test = list(indices_to_test)
+def max_correlation(slice1, slice2, rotation_step=10):
+    """Compute the maximum correlation between two frames with rotation adjustment."""
+    max_corr = -np.inf
+    best_angle = 0
+    for angle in range(0, 360, rotation_step):
+        rotated_slice2 = rotate_image(slice2, angle)
+        corr = np.corrcoef(slice1.ravel(), rotated_slice2.ravel())[0, 1]
+        if corr > max_corr:
+            max_corr = corr
+            best_angle = angle
+    return max_corr, best_angle
 
-# Initialize the new sorted indices list with the index of the last slice
-sorted_indices = [len(diastolic_frames) - 1]
+def compute_correlation_matrix(frames):
+    """Compute a pairwise correlation matrix for the frames."""
+    n_frames = frames.shape[0]
+    corr_matrix = np.zeros((n_frames, n_frames))
+    for i in range(n_frames):
+        for j in range(i + 1, n_frames):
+            corr = np.corrcoef(frames[i].ravel(), frames[j].ravel())[0, 1]
+            corr_matrix[i, j] = corr
+            corr_matrix[j, i] = corr
+    return corr_matrix
 
-# Loop until all slices are sorted
-while indices_to_test:
-    corrs = []
-    for idx in indices_to_test:
-        corrs.append(correlation(diastolic_frames[idx], last_slice))
-    
-    max_corr_index = np.argmax(corrs)
-    last_slice = diastolic_frames[max_corr_index]
-    sorted_indices.append(indices_to_test[max_corr_index])
-    indices_to_test.pop(max_corr_index)
+def greedy_path(corr_matrix):
+    """Find a greedy path through the frames based on the correlation matrix."""
+    n_frames = corr_matrix.shape[0]
+    visited = [False] * n_frames
+    path = [n_frames - 1]  # Start with the last frame (ostium fixed)
+    visited[-1] = True
 
-# Create the sorted array using the sorted indices
+    for _ in range(n_frames - 1):
+        last = path[-1]
+        remaining = [(idx, corr_matrix[last, idx]) for idx in range(n_frames) if not visited[idx]]
+        next_frame = max(remaining, key=lambda x: x[1])[0]  # Choose the most correlated
+        path.append(next_frame)
+        visited[next_frame] = True
+
+    return path
+
+def compute_correlation_matrix_with_rotation(frames, rotation_step=10):
+    """Compute a pairwise correlation matrix for the frames with rotation adjustment."""
+    n_frames = frames.shape[0]
+    corr_matrix = np.zeros((n_frames, n_frames))
+    rotation_matrix = np.zeros((n_frames, n_frames))  # Optional: track best rotation angles
+
+    # Total number of comparisons
+    total_comparisons = n_frames * (n_frames - 1) // 2
+
+    with tqdm(total=total_comparisons, desc="Computing Correlation Matrix") as pbar:
+        for i in range(n_frames):
+            for j in range(i + 1, n_frames):
+                corr, angle = max_correlation(frames[i], frames[j], rotation_step)
+                corr_matrix[i, j] = corr
+                corr_matrix[j, i] = corr
+                rotation_matrix[i, j] = angle  # Track best rotation angle
+                rotation_matrix[j, i] = -angle  # Opposite for the reverse comparison
+                pbar.update(1)  # Increment progress bar
+
+    return corr_matrix, rotation_matrix
+
+# Compute the updated correlation matrix
+correlation_matrix, rotation_matrix = compute_correlation_matrix_with_rotation(diastolic_frames)
+
+# Use the greedy path function as before
+sorted_indices = greedy_path(correlation_matrix)
+
+# Use sorted indices to reorder frames and info
 sorted_diastolic_frames = diastolic_frames[sorted_indices]
-# switch order of the sorted_diastolic_frames
-sorted_diastolic_frames = np.flip(sorted_diastolic_frames, axis=0)
-
-# Reverse the sorted indices to match the flipped sorted_diastolic_frames
-sorted_indices = sorted_indices[::-1]
-
-# get a reordered list of the diastolic_info
 sorted_diastolic_info = diastolic_info.iloc[sorted_indices].reset_index(drop=True)
+
+
+# # Compute the correlation matrix for the cropped frames
+# correlation_matrix = compute_correlation_matrix(diastolic_frames)
+
+# # Find a greedy path
+# sorted_indices = greedy_path(correlation_matrix)
+
+# # Use the sorted indices to reorder frames and info
+# sorted_diastolic_frames = diastolic_frames[sorted_indices]
+# sorted_diastolic_info = diastolic_info.iloc[sorted_indices].reset_index(drop=True)
+
+# flip the sorted_diastolic_frames
+sorted_diastolic_frames = sorted_diastolic_frames[::-1]
+sorted_diastolic_info = sorted_diastolic_info[::-1]
 
 # plot comparison of lumen_area from the diastolic_info versus the sorted_diastolic_info
 plt.figure(figsize=(10, 5))
@@ -106,3 +174,13 @@ for i in range(num_frames, rows * cols):
     ax[i // cols, i % cols].axis('off')
 
 plt.show()
+
+last_frame_index = len(diastolic_frames) - 1
+best_angles = [rotation_matrix[last_frame_index, i] for i in range(len(diastolic_frames))]
+plt.plot(best_angles, label='Best Rotation Angles')
+plt.xlabel('Frame Index')
+plt.ylabel('Angle (degrees)')
+plt.title('Best Rotation Angles for Last Frame')
+plt.legend()
+plt.show()
+

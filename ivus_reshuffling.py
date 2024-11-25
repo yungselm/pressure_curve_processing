@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 from tqdm import tqdm
+from scipy.spatial.distance import cdist
+import cv2
 
 # diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/stress/PD616KK1_diastolic.npy')
 # systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/stress/PD616KK1_systolic.npy')
@@ -10,17 +12,17 @@ from tqdm import tqdm
 # diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_234_stress.txt', sep='\t')
 # diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
 
-# diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/rest/PD2EZDBF_diastolic.npy')
-# systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/rest/PD2EZDBF_systolic.npy')
+diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/rest/PD2EZDBF_diastolic.npy')
+systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/NARCO_234/rest/PD2EZDBF_systolic.npy')
 
-# diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_234_rest.txt', sep='\t')
-# diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
-
-diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_diastolic.npy')
-systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_systolic.npy')
-
-diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_report.txt', sep='\t')
+diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_234_rest.txt', sep='\t')
 diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
+
+# diastolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_diastolic.npy')
+# systolic_frames = np.load('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_systolic.npy')
+
+# diastolic_info = pd.read_csv('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/PD6IBR6T_report.txt', sep='\t')
+# diastolic_info = diastolic_info[diastolic_info['phase'] == 'D']
 
 def crop_image(image, x1, x2, y1, y2):
     return image[x1:x2, y1:y2]
@@ -35,9 +37,6 @@ for idx, frame in enumerate(diastolic_frames):
 # Update diastolic_frames to the cropped version
 diastolic_frames = cropped_diastolic_frames
 
-import numpy as np
-from scipy.spatial.distance import cdist
-import cv2
 
 def rotate_image(image, angle):
     """Rotate an image by a specified angle."""
@@ -116,17 +115,6 @@ sorted_indices = greedy_path(correlation_matrix)
 sorted_diastolic_frames = diastolic_frames[sorted_indices]
 sorted_diastolic_info = diastolic_info.iloc[sorted_indices].reset_index(drop=True)
 
-
-# # Compute the correlation matrix for the cropped frames
-# correlation_matrix = compute_correlation_matrix(diastolic_frames)
-
-# # Find a greedy path
-# sorted_indices = greedy_path(correlation_matrix)
-
-# # Use the sorted indices to reorder frames and info
-# sorted_diastolic_frames = diastolic_frames[sorted_indices]
-# sorted_diastolic_info = diastolic_info.iloc[sorted_indices].reset_index(drop=True)
-
 # flip the sorted_diastolic_frames
 sorted_diastolic_frames = sorted_diastolic_frames[::-1]
 sorted_diastolic_info = sorted_diastolic_info[::-1]
@@ -183,4 +171,3 @@ plt.ylabel('Angle (degrees)')
 plt.title('Best Rotation Angles for Last Frame')
 plt.legend()
 plt.show()
-

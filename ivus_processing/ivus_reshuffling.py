@@ -9,12 +9,13 @@ from matplotlib.widgets import TextBox, CheckButtons
 
 
 class Reshuffeling:
-    def __init__(self, path):
+    def __init__(self, path, plot=False):
         self.path = path
         self.diastolic_frames, self.systolic_frames = self.load_frames(path)
         self.diastolic_info, self.systolic_info = self.read_info(path)
         self.sorted_diastolic_indices = None
         self.sorted_systolic_indices = None
+        self.plot_true = plot
 
     def __call__(self):
         self.diastolic_frames = self.crop_images(self.diastolic_frames, 50, 512, 25, 487)
@@ -33,13 +34,16 @@ class Reshuffeling:
             self.systolic_correlation_matrix,
             self.systolic_rotation_matrix,
         ) = self.reshuffle(self.systolic_frames, self.systolic_info, 'systolic')
-        # self.plot_comparison(self.diastolic_info, self.sorted_diastolic_info)
-        # self.plot_comparison(self.systolic_info, self.sorted_systolic_info)
-        # self.plot_angles(self.diastolic_frames, self.diastolic_rotation_matrix)
-        # self.plot_angles(self.systolic_frames, self.systolic_rotation_matrix)
-        self.sorted_diastolic_frames = self.plot_images(self.sorted_diastolic_frames, title='Diastolic Frames')
-        self.sorted_systolic_frames = self.plot_images(self.sorted_systolic_frames, title='Systolic Frames')
-        self.rearrange_info_and_save()
+        if self.plot_true:
+            self.sorted_diastolic_frames = self.plot_images(self.sorted_diastolic_frames, title='Diastolic Frames')
+            self.sorted_systolic_frames = self.plot_images(self.sorted_systolic_frames, title='Systolic Frames')
+            self.plot_comparison(self.diastolic_info, self.sorted_diastolic_info)
+            self.plot_comparison(self.systolic_info, self.sorted_systolic_info)
+            self.plot_correlation_matrix(self.diastolic_correlation_matrix, title='Diastolic Correlation Matrix')
+            self.plot_correlation_matrix(self.systolic_correlation_matrix, title='Systolic Correlation Matrix')
+            self.rearrange_info_and_save()
+        else:
+            self.rearrange_info_and_save()
 
         return self.sorted_diastolic_frames, self.sorted_systolic_frames
 
@@ -64,7 +68,7 @@ class Reshuffeling:
         """Read IVUS information from a text file."""
         info = None
         for filename in os.listdir(path):
-            if '_report' in filename:
+            if '_report' in filename or '_rest' in filename or '_stress' in filename:
                 info = pd.read_csv(os.path.join(path, filename), sep='\t')
                 break  # Exit the loop once the report file is found
 
@@ -188,7 +192,7 @@ class Reshuffeling:
         plt.xlabel('Frame Index')
         plt.ylabel('Lumen Area')
         plt.title('Comparison of Lumen Area Before and After Sorting')
-        plt.show()
+        plt.savefig(os.path.join(self.path, 'lumen_area_comparison.png'))
 
     def plot_images(self, frames, title='Frames'):
         """
@@ -220,11 +224,11 @@ class Reshuffeling:
             for i in range(num_frames, rows * cols):
                 ax[i // cols, i % cols].axis('off')
 
-            plt.subplots_adjust(bottom=0.3)  # Adjust space for widgets
+            plt.subplots_adjust(bottom=0.2, top=0.90, hspace=0.3)  # Adjust space for widgets and subplots
             plt.suptitle(title)
 
             # Create TextBox for frame to move
-            axbox1 = plt.axes([0.1, 0.1, 0.2, 0.05])
+            axbox1 = plt.axes([0.1, 0.05, 0.2, 0.05])
             text_box1 = TextBox(axbox1, 'Frame to Move', initial="")
 
             def update_frame_to_move(text):
@@ -236,7 +240,7 @@ class Reshuffeling:
             text_box1.on_submit(update_frame_to_move)
 
             # Create TextBox for end position
-            axbox2 = plt.axes([0.4, 0.1, 0.2, 0.05])
+            axbox2 = plt.axes([0.4, 0.05, 0.2, 0.05])
             text_box2 = TextBox(axbox2, 'End Position', initial="")
 
             def update_end_position(text):
@@ -248,7 +252,7 @@ class Reshuffeling:
             text_box2.on_submit(update_end_position)
 
             # Add CheckButtons for "Plot Finished?"
-            axcheck = plt.axes([0.75, 0.1, 0.2, 0.1])
+            axcheck = plt.axes([0.75, 0.05, 0.2, 0.05])
             check_button = CheckButtons(axcheck, ["Plot Finished?"], [finished[0]])
 
             def finish_plot(label):
@@ -284,15 +288,14 @@ class Reshuffeling:
         print("Final frame order determined.")
         return np.array(sorted_frames)
 
-    def plot_angles(self, diastolic_frames, rotation_matrix):
-        last_frame_index = len(diastolic_frames) - 1
-        best_angles = [rotation_matrix[last_frame_index, i] for i in range(len(diastolic_frames))]
-        plt.plot(best_angles, label='Best Rotation Angles')
+    def plot_correlation_matrix(self, correlation_matrix, title='Correlation Matrix'):
+        plt.figure(figsize=(8, 8))
+        plt.imshow(correlation_matrix, cmap='viridis')
+        plt.colorbar()
+        plt.title(title)
         plt.xlabel('Frame Index')
-        plt.ylabel('Angle (degrees)')
-        plt.title('Best Rotation Angles for Last Frame')
-        plt.legend()
-        plt.show()
+        plt.ylabel('Frame Index')
+        plt.savefig(os.path.join(self.path, f'{title}.png'))
 
     def rearrange_info_and_save(self):
         # Rearrange self.diastolic_info based on the sorted_diastolic_indices
@@ -314,12 +317,14 @@ class Reshuffeling:
 
         # Save the rearranged information to a new file
         combined_info = pd.concat([sorted_diastolic_info, sorted_systolic_info], axis=0).reset_index(drop=True)
-        combined_info.to_csv(os.path.join(self.path, 'combined_info.csv'), index=False)
+        combined_info.to_csv(os.path.join(self.path, 'combined_sorted.csv'), index=False)
 
         print("Combined info saved successfully.")
 
 
-reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Rest")
-diastolic_frames, systolic_frames = reshuffeling()
-# reshuffeling.plot_images(diastolic_frames, title='Diastolic Frames')
-# reshuffeling.plot_images(systolic_frames, title='Systolic Frames')
+if __name__ == '__main__':
+    # reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Rest")
+    reshuffeling = Reshuffeling(
+        r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress", plot=True
+    )
+    diastolic_frames, systolic_frames = reshuffeling()

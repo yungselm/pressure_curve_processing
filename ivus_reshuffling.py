@@ -3,36 +3,45 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 from tqdm import tqdm
-from scipy.spatial.distance import cdist
 import cv2
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
-from ipywidgets import interact, VBox, HBox, Dropdown, Button
-from IPython.display import display
-import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QWidget
-from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt
+from matplotlib.widgets import TextBox, CheckButtons
+
 
 class Reshuffeling:
     def __init__(self, path):
         self.path = path
         self.diastolic_frames, self.systolic_frames = self.load_frames(path)
         self.diastolic_info, self.systolic_info = self.read_info(path)
+        self.sorted_diastolic_indices = None
+        self.sorted_systolic_indices = None
 
     def __call__(self):
         self.diastolic_frames = self.crop_images(self.diastolic_frames, 50, 512, 25, 487)
         self.systolic_frames = self.crop_images(self.systolic_frames, 50, 512, 25, 487)
-        self.sorted_diastolic_frames, self.sorted_diastolic_info, self.correlation_matrix, self.rotation_matrix = (
-            self.reshuffle(self.diastolic_frames, self.diastolic_info)
-        )
-        self.plot_comparison(self.diastolic_info, self.sorted_diastolic_info)
-        self.plot_images()
-        self.plot_angles(self.diastolic_frames, self.rotation_matrix)
+        (
+            self.sorted_diastolic_indices,
+            self.sorted_diastolic_frames,
+            self.sorted_diastolic_info,
+            self.diastolic_correlation_matrix,
+            self.diastolic_rotation_matrix,
+        ) = self.reshuffle(self.diastolic_frames, self.diastolic_info, 'diastolic')
+        (
+            self.sorted_systolic_indices,
+            self.sorted_systolic_frames,
+            self.sorted_systolic_info,
+            self.systolic_correlation_matrix,
+            self.systolic_rotation_matrix,
+        ) = self.reshuffle(self.systolic_frames, self.systolic_info, 'systolic')
+        # self.plot_comparison(self.diastolic_info, self.sorted_diastolic_info)
+        # self.plot_comparison(self.systolic_info, self.sorted_systolic_info)
+        # self.plot_angles(self.diastolic_frames, self.diastolic_rotation_matrix)
+        # self.plot_angles(self.systolic_frames, self.systolic_rotation_matrix)
+        self.sorted_diastolic_frames = self.plot_images(self.sorted_diastolic_frames, title='Diastolic Frames')
+        self.sorted_systolic_frames = self.plot_images(self.sorted_systolic_frames, title='Systolic Frames')
+        self.rearrange_info_and_save()
 
-        return self.sorted_diastolic_frames, self.systolic_frames
+        return self.sorted_diastolic_frames, self.sorted_systolic_frames
 
     def load_frames(self, path):
         """Load IVUS frames from a directory."""
@@ -62,8 +71,8 @@ class Reshuffeling:
         if info is None:
             raise FileNotFoundError("No report file found in the specified directory.")
 
-        info_dia = info[info['phase'] == 'D']
-        info_sys = info[info['phase'] == 'S']
+        info_dia = info[info['phase'] == 'D'].reset_index(drop=True)
+        info_sys = info[info['phase'] == 'S'].reset_index(drop=True)
 
         return info_dia, info_sys
 
@@ -146,15 +155,30 @@ class Reshuffeling:
 
         return corr_matrix, rotation_matrix
 
-    def reshuffle(self, diastolic_frames, diastolic_info):
-        correlation_matrix, rotation_matrix = self.compute_correlation_matrix_with_rotation(diastolic_frames)
-        sorted_indices = self.greedy_path(correlation_matrix)
-        sorted_diastolic_frames = diastolic_frames[sorted_indices]
-        sorted_diastolic_info = diastolic_info.iloc[sorted_indices].reset_index(drop=True)
-        sorted_diastolic_frames = sorted_diastolic_frames[::-1]
-        sorted_diastolic_info = sorted_diastolic_info[::-1]
+    def reshuffle(self, frames, info, phase):
+        corr_matrix_file = os.path.join(self.path, f'{phase}_correlation_matrix.npy')
+        rotation_matrix_file = os.path.join(self.path, f'{phase}_rotation_matrix.npy')
 
-        return sorted_diastolic_frames, sorted_diastolic_info, correlation_matrix, rotation_matrix
+        if os.path.exists(corr_matrix_file) and os.path.exists(rotation_matrix_file):
+            correlation_matrix = np.load(corr_matrix_file)
+            rotation_matrix = np.load(rotation_matrix_file)
+        else:
+            correlation_matrix, rotation_matrix = self.compute_correlation_matrix_with_rotation(frames)
+            np.save(corr_matrix_file, correlation_matrix)
+            np.save(rotation_matrix_file, rotation_matrix)
+
+        sorted_indices = self.greedy_path(correlation_matrix)
+        sorted_frames = frames[sorted_indices]
+
+        # Rearrange all columns except 'position'
+        columns_to_rearrange = [col for col in info.columns if col != 'position']
+        sorted_info = info.copy()
+        sorted_info[columns_to_rearrange] = info.iloc[sorted_indices][columns_to_rearrange].values
+
+        sorted_frames = sorted_frames[::-1]
+        sorted_info = sorted_info[::-1].reset_index(drop=True)
+
+        return sorted_indices, sorted_frames, sorted_info, correlation_matrix, rotation_matrix
 
     def plot_comparison(self, diastolic_info, sorted_diastolic_info):
         plt.figure(figsize=(10, 5))
@@ -166,41 +190,99 @@ class Reshuffeling:
         plt.title('Comparison of Lumen Area Before and After Sorting')
         plt.show()
 
-    def plot_images(self):
-        frames = self.sorted_diastolic_frames
-        num_frames = len(frames)
-        cols = 8
-        rows = (num_frames + cols - 1) // cols
+    def plot_images(self, frames, title='Frames'):
+        """
+        Plot images interactively with text boxes for rearranging frames
+        and a checkbox to indicate when plotting is finished.
+        """
+        sorted_frames = list(frames)  # Convert to a list for easy manipulation
+        rearranged_indices = list(range(len(frames)))  # Initialize rearranged indices
+        finished = [False]  # Use a mutable object to track completion state
 
-        fig, ax = plt.subplots(rows, cols, figsize=(20, rows * 2.5))
-        for idx, frame in enumerate(frames):
-            ax[idx // cols, idx % cols].imshow(frame, cmap='gray')
-            ax[idx // cols, idx % cols].set_title(f'Frame {idx}')
-            ax[idx // cols, idx % cols].axis('off')
+        # Frame indices for reordering
+        frame_to_move = [0]
+        end_position = [0]
 
-        for i in range(num_frames, rows * cols):
-            ax[i // cols, i % cols].axis('off')
+        def refresh_plot():
+            """Refresh the plot with the current frame order."""
+            plt.close('all')  # Close any previous plots
 
-        plt.show()
+            num_frames = len(sorted_frames)
+            cols = 8
+            rows = (num_frames + cols - 1) // cols
+            fig, ax = plt.subplots(rows, cols, figsize=(20, rows * 2.5))
 
-    def update_order(self, **kwargs):
-        # Update the order based on user selection
-        self.order = [kwargs[f'frame_{i}'] for i in range(self.num_frames)]
-        self.plot_images()
+            for idx, frame in enumerate(sorted_frames):
+                ax[idx // cols, idx % cols].imshow(frame, cmap='gray')
+                ax[idx // cols, idx % cols].set_title(f'Frame {idx}')
+                ax[idx // cols, idx % cols].axis('off')
 
-    def interactive_plot(self):
-        # Create dropdown widgets for each frame
-        widgets = []
-        for i in range(self.num_frames):
-            widgets.append(Dropdown(options=list(range(self.num_frames)), 
-                                    value=self.order[i], 
-                                    description=f'Frame {i}:',
-                                    continuous_update=False))
-        
-        # Create an interactive UI
-        ui = VBox(widgets)
-        interact_ui = interact(self.update_order, **{f'frame_{i}': w for i, w in enumerate(widgets)})
-        display(ui, interact_ui)
+            for i in range(num_frames, rows * cols):
+                ax[i // cols, i % cols].axis('off')
+
+            plt.subplots_adjust(bottom=0.3)  # Adjust space for widgets
+            plt.suptitle(title)
+
+            # Create TextBox for frame to move
+            axbox1 = plt.axes([0.1, 0.1, 0.2, 0.05])
+            text_box1 = TextBox(axbox1, 'Frame to Move', initial="")
+
+            def update_frame_to_move(text):
+                try:
+                    frame_to_move[0] = int(text)
+                except ValueError:
+                    print("Invalid input for 'Frame to Move'.")
+
+            text_box1.on_submit(update_frame_to_move)
+
+            # Create TextBox for end position
+            axbox2 = plt.axes([0.4, 0.1, 0.2, 0.05])
+            text_box2 = TextBox(axbox2, 'End Position', initial="")
+
+            def update_end_position(text):
+                try:
+                    end_position[0] = int(text)
+                except ValueError:
+                    print("Invalid input for 'End Position'.")
+
+            text_box2.on_submit(update_end_position)
+
+            # Add CheckButtons for "Plot Finished?"
+            axcheck = plt.axes([0.75, 0.1, 0.2, 0.1])
+            check_button = CheckButtons(axcheck, ["Plot Finished?"], [finished[0]])
+
+            def finish_plot(label):
+                if label == "Plot Finished?":
+                    finished[0] = not finished[0]
+
+            check_button.on_clicked(finish_plot)
+
+            plt.show()
+
+        # Main interactive loop
+        while not finished[0]:
+            refresh_plot()
+
+            # Attempt to move the frame if indices are valid
+            if 0 <= frame_to_move[0] < len(sorted_frames) and 0 <= end_position[0] < len(sorted_frames):
+                frame = sorted_frames.pop(frame_to_move[0])
+                sorted_frames.insert(end_position[0], frame)
+
+                # Update rearranged_indices accordingly
+                index = rearranged_indices.pop(frame_to_move[0])
+                rearranged_indices.insert(end_position[0], index)
+            else:
+                print("Invalid indices. No changes made.")
+
+        # Update the class attribute with the final rearranged indices
+        if title == 'Diastolic Frames':
+            self.sorted_diastolic_indices = rearranged_indices
+        else:
+            self.sorted_systolic_indices = rearranged_indices
+
+        # Return final sorted frames
+        print("Final frame order determined.")
+        return np.array(sorted_frames)
 
     def plot_angles(self, diastolic_frames, rotation_matrix):
         last_frame_index = len(diastolic_frames) - 1
@@ -212,91 +294,32 @@ class Reshuffeling:
         plt.legend()
         plt.show()
 
+    def rearrange_info_and_save(self):
+        # Rearrange self.diastolic_info based on the sorted_diastolic_indices
+        sorted_diastolic_info = self.diastolic_info.copy()
+        sorted_systolic_info = self.systolic_info.copy()
 
-reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Stress")
+        # Rearrange all columns except 'position'
+        columns_to_rearrange = [col for col in self.diastolic_info.columns if col != 'position']
+        sorted_diastolic_info[columns_to_rearrange] = self.diastolic_info.iloc[self.sorted_diastolic_indices][
+            columns_to_rearrange
+        ].values
+        sorted_systolic_info[columns_to_rearrange] = self.systolic_info.iloc[self.sorted_systolic_indices][
+            columns_to_rearrange
+        ].values
+
+        # Set new index
+        sorted_diastolic_info = sorted_diastolic_info.reset_index(drop=True)
+        sorted_systolic_info = sorted_systolic_info.reset_index(drop=True)
+
+        # Save the rearranged information to a new file
+        combined_info = pd.concat([sorted_diastolic_info, sorted_systolic_info], axis=0).reset_index(drop=True)
+        combined_info.to_csv(os.path.join(self.path, 'combined_info.csv'), index=False)
+
+        print("Combined info saved successfully.")
+
+
+reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Rest")
 diastolic_frames, systolic_frames = reshuffeling()
-reshuffeling.plot_images()
-
-# class DraggablePixmapItem(QGraphicsPixmapItem):
-#     def __init__(self, pixmap, index, parent=None):
-#         super().__init__(pixmap, parent)
-#         self.index = index  # Store the index of the image
-#         self.setFlag(QGraphicsPixmapItem.ItemIsMovable, True)
-#         self.setFlag(QGraphicsPixmapItem.ItemSendsGeometryChanges, True)
-
-#     def mouseReleaseEvent(self, event):
-#         super().mouseReleaseEvent(event)
-#         # Emit a custom signal or handle the drop logic here
-
-
-# class ImageReorderingApp(QMainWindow):
-#     def __init__(self, frames):
-#         super().__init__()
-#         self.frames = frames
-#         self.order = list(range(len(frames)))  # Track current order of images
-
-#         self.initUI()
-
-#     def initUI(self):
-#         self.setWindowTitle("Drag-and-Drop Image Reordering")
-#         self.setGeometry(100, 100, 800, 600)
-
-#         # Main widget and layout
-#         central_widget = QWidget()
-#         layout = QVBoxLayout(central_widget)
-#         self.setCentralWidget(central_widget)
-
-#         # Graphics view and scene for displaying images
-#         self.view = QGraphicsView()
-#         self.scene = QGraphicsScene()
-#         self.view.setScene(self.scene)
-#         layout.addWidget(self.view)
-
-#         self.load_images()
-
-#     def load_images(self):
-#         """Load images into the QGraphicsScene."""
-#         cols = 4  # Number of columns in the grid
-#         spacing = 10  # Spacing between images
-#         thumbnail_size = 100  # Size of each thumbnail
-
-#         for idx, frame_idx in enumerate(self.order):
-#             # Convert NumPy array to QPixmap
-#             frame = self.frames[frame_idx]
-#             height, width = frame.shape
-#             bytes_per_line = width
-#             q_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
-#             pixmap = QPixmap.fromImage(q_image).scaled(thumbnail_size, thumbnail_size, Qt.KeepAspectRatio)
-
-#             # Create a draggable pixmap item
-#             item = DraggablePixmapItem(pixmap, frame_idx)
-#             row, col = divmod(idx, cols)
-#             item.setPos(col * (thumbnail_size + spacing), row * (thumbnail_size + spacing))
-#             self.scene.addItem(item)
-
-#     def keyPressEvent(self, event):
-#         """Re-render the grid in the new order when Enter is pressed."""
-#         if event.key() == Qt.Key_Return:  # Rearrange images on Enter key
-#             self.refresh_order()
-
-#     def refresh_order(self):
-#         """Re-render the images based on the current order."""
-#         self.scene.clear()
-#         self.load_images()
-
-
-# def main():
-#     app = QApplication(sys.argv)
-
-#     # Use diastolic_frames from reshuffeling
-#     frames = diastolic_frames
-
-#     # Launch the app
-#     main_window = ImageReorderingApp(frames)
-#     main_window.show()
-#     sys.exit(app.exec_())
-
-
-# if __name__ == '__main__':
-#     main()
-
+# reshuffeling.plot_images(diastolic_frames, title='Diastolic Frames')
+# reshuffeling.plot_images(systolic_frames, title='Systolic Frames')

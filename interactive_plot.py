@@ -10,7 +10,7 @@ from matplotlib.backend_bases import MouseButton
 import threading
 
 class InteractivePlotCleaning:
-    def __init__(self, df):
+    def __init__(self, df, sensitivity_cursor=0.05):
         self.df = df
         self.time = df['time']
         self.p_aortic = df['p_aortic']
@@ -25,6 +25,7 @@ class InteractivePlotCleaning:
         self.autosave_thread = None
         self.autosave_active = False
         self.autosave_event = threading.Event()  # Event to signal autosave thread to stop
+        self.sensitivity_cursor = sensitivity_cursor
 
     def __call__(self):
         self.main_plot()
@@ -92,7 +93,7 @@ class InteractivePlotCleaning:
             # Check if clicking near an existing line
             for line, peak_type in self.vertical_lines:
                 line_pos = line.get_xdata()  # Get line's position
-                if line_pos is not None and abs(line_pos[0] - event.xdata) < 0.05:  # Tolerance for selection
+                if line_pos is not None and abs(line_pos[0] - event.xdata) < self.sensitivity_cursor:  # Tolerance for selection
                     self.selected_line = line
                     self.last_selected_line = line
                     print(f"Selected line at {self.selected_line.get_xdata()}")
@@ -178,7 +179,8 @@ class InteractivePlotCleaning:
 
 if __name__ == "__main__":
     file = "C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/NARCO_10_eval/narco_10_pressure_rest_1.csv"
+    sensitivity_cursor = 0.05
     df = pd.read_csv(file)
-    interactive_plot = InteractivePlotCleaning(df)
+    interactive_plot = InteractivePlotCleaning(df, sensitivity_cursor)
     updated_df = interactive_plot()
     updated_df.to_csv(file, index=False)

@@ -315,9 +315,12 @@ class Reshuffeling:
         sorted_diastolic_info = sorted_diastolic_info.reset_index(drop=True)
         sorted_systolic_info = sorted_systolic_info.reset_index(drop=True)
 
-        # Save the rearranged information to a new file
         combined_info = pd.concat([sorted_diastolic_info, sorted_systolic_info], axis=0).reset_index(drop=True)
-        combined_info.to_csv(os.path.join(self.path, 'combined_sorted.csv'), index=False)
+        # Save the rearranged information to a new file
+        if self.plot_true:
+            combined_info.to_csv(os.path.join(self.path, 'combined_sorted_manual.csv'), index=False)
+        else:
+            combined_info.to_csv(os.path.join(self.path, 'combined_sorted.csv'), index=False)
 
         print("Combined info saved successfully.")
 

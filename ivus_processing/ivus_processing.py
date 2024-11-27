@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+
 pd.options.mode.chained_assignment = None  # default='warn'
 
 from loguru import logger
@@ -40,7 +41,7 @@ class IvusProcessor:
         time_intervals = frame_diffs / self.FRAME_RATE  # Time interval in seconds
 
         # Calculate distance for each interval based on pullback speed (mm/s)
-        distances = time_intervals * self.PULLBACK_SPEED 
+        distances = time_intervals * self.PULLBACK_SPEED
 
         # Generate cumulative distance, starting at 0
         cumulative_distance = np.cumsum(np.insert(distances, 0, 0))
@@ -70,12 +71,12 @@ class IvusProcessor:
         # df_sys['distance'] = self.estimate_distance(df_sys)
 
         # if sum of first half of df_dia['frame'] is bigger than sum of last half of df_dia['frame'], ascending order otherwise descending same for df_sys
-        if df_dia['frame'].iloc[:len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2:].sum():
+        if df_dia['frame'].iloc[: len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2 :].sum():
             distance_dia = sorted(df_dia['distance'])
         else:
             distance_dia = sorted(df_dia['distance'], reverse=True)
 
-        if df_sys['frame'].iloc[:len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2:].sum():
+        if df_sys['frame'].iloc[: len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2 :].sum():
             distance_sys = sorted(df_sys['distance'])
         else:
             distance_sys = sorted(df_sys['distance'], reverse=True)
@@ -105,14 +106,18 @@ class IvusProcessor:
     def fit_curves_sys_dia(self, df, degree=10):
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
         df['fitted_lumen_area'] = df.groupby('phase', group_keys=False).apply(
-            lambda group: pd.Series(self.polynomial_fit(group['distance'], group['lumen_area'], degree), index=group.index),
-            include_groups=False
+            lambda group: pd.Series(
+                self.polynomial_fit(group['distance'], group['lumen_area'], degree), index=group.index
+            ),
+            include_groups=False,
         )
         df['mean_elliptic_ratio'] = df.groupby('distance')['elliptic_ratio'].transform('mean')
         df['fitted_elliptic_ratio'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], degree)
         df['fitted_shortest_distance'] = df.groupby('phase', group_keys=False).apply(
-            lambda group: pd.Series(self.polynomial_fit(group['distance'], group['shortest_distance'], degree), index=group.index),
-            include_groups=False
+            lambda group: pd.Series(
+                self.polynomial_fit(group['distance'], group['shortest_distance'], degree), index=group.index
+            ),
+            include_groups=False,
         )
         df = df.sort_values(by='distance')
         return df
@@ -151,7 +156,7 @@ class IvusProcessor:
             title = 'Shortest Distance vs Distance'
         else:
             raise ValueError(f"Variable {variable} not supported.")
-        
+
         x_min = min(df_rest['distance'].min(), df_dobu['distance'].min())
         x_max = max(df_rest['distance'].max(), df_dobu['distance'].max())
 
@@ -260,7 +265,7 @@ class IvusProcessor:
             ylabel = 'Shortest Distance (mm)'
         else:
             raise ValueError(f"Variable {variable} not supported.")
-        
+
         fig, axes = plt.subplots(2, 2, figsize=(20, 10), gridspec_kw={'hspace': 0.4, 'wspace': 0.4})
 
         # Plot original data for rest
@@ -378,7 +383,10 @@ class IvusProcessor:
     def process_directory(self, directory):
         """Process all txt files in a directory."""
         print(f"Processing directory: {directory}")
-        files = [f for f in os.listdir(directory) if f.endswith('_report.txt') or f.endswith('combined_sorted.csv')]
+        if 'combined_sorted_manual.csv' in os.listdir(directory):
+            files = [f for f in os.listdir(directory) if f.endswith('_report.txt') or f == 'combined_sorted_manual.csv']
+        else:
+            files = [f for f in os.listdir(directory) if f.endswith('_report.txt') or f.endswith('combined_sorted.csv')]
         # sort so that _report.txt files come first, so that pullbackspeed etc. from report.txt can be used for combined_sorted.csv
         files = sorted(files, key=lambda x: x.endswith('_report.txt'), reverse=True)
         dfs = {}
@@ -393,17 +401,21 @@ class IvusProcessor:
             df = self.fit_curve_global(df)
             dfs[file] = df
         return dfs
-    
+
     def run(self):
         """Main method to process data and generate plots."""
         print("Starting run method")
         rest_data = self.process_directory(self.rest_dir)
         stress_data = self.process_directory(self.stress_dir)
 
-        rest_df = next(df for filename, df in rest_data.items() if filename.endswith('_report.txt'))
-        rest_df_rearranged = next(df for filename, df in rest_data.items() if filename.endswith('combined_sorted.csv'))
-        stress_df = next(df for filename, df in stress_data.items() if filename.endswith('_report.txt'))
-        stress_df_rearranged = next(df for filename, df in stress_data.items() if filename.endswith('combined_sorted.csv'))
+        try:
+            rest_df = next(df for filename, df in rest_data.items() if filename.endswith('_report.txt'))
+            rest_df_rearranged = next(df for filename, df in rest_data.items() if filename.endswith('combined_sorted.csv') or filename == 'combined_sorted_manual.csv')
+            stress_df = next(df for filename, df in stress_data.items() if filename.endswith('_report.txt'))
+            stress_df_rearranged = next(df for filename, df in stress_data.items() if filename.endswith('combined_sorted.csv') or filename == 'combined_sorted_manual.csv')
+        except StopIteration:
+            logger.error("Required files not found in the directories.")
+            return
 
         self.plot_data_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='lumen_area')
         self.plot_global_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='lumen_area')
@@ -413,8 +425,10 @@ class IvusProcessor:
         rest_df_rearranged.to_csv(os.path.join(self.rest_dir, 'output_rearranged.csv'))
         stress_df_rearranged.to_csv(os.path.join(self.stress_dir, 'output_rearranged.csv'))
 
+
 # Usage
 processor = IvusProcessor(
     rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\rest",
-    stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress")
+    stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress",
+)
 processor.run()

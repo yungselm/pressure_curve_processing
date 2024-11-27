@@ -35,7 +35,7 @@ def ivus_main(cfg: DictConfig):
             logger.info(f"Processing stress directory: {stress_dir}")
             reshuffeling = Reshuffeling(stress_dir, plot=False)
             reshuffeling()
-
+        
         processing = IvusProcessor(rest_dir, stress_dir)
         processing.run()
 

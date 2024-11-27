@@ -4,6 +4,8 @@ import pandas as pd
 import os
 pd.options.mode.chained_assignment = None  # default='warn'
 
+from loguru import logger
+
 
 class IvusProcessor:
     def __init__(self, rest_dir, stress_dir):
@@ -26,6 +28,25 @@ class IvusProcessor:
         self.START_FRAME = df['pullback_start_frame'].unique()[0]
         self.FRAME_RATE = df['frame_rate'].unique()[0]
 
+    def estimate_distance(self, df):
+        """
+        Estimates the distance between consecutive frames during a pullback.
+        """
+        if 'frame' not in df or len(df) < 2:
+            raise ValueError("DataFrame must contain a 'frame' column with at least two frames.")
+
+        # Calculate the time interval between consecutive frames
+        frame_diffs = np.diff(df['frame'].sort_values())
+        time_intervals = frame_diffs / self.FRAME_RATE  # Time interval in seconds
+
+        # Calculate distance for each interval based on pullback speed (mm/s)
+        distances = time_intervals * self.PULLBACK_SPEED 
+
+        # Generate cumulative distance, starting at 0
+        cumulative_distance = np.cumsum(np.insert(distances, 0, 0))
+
+        return cumulative_distance
+
     def prep_data(self, df):
         """
         Prepare data by filtering and calculating distances.
@@ -38,28 +59,48 @@ class IvusProcessor:
             print("Using default values for pullback speed, start frame and frame rate.")
 
         df = df[df['phase'] != '-'].copy()
-        df = df[df['frame'] >= self.START_FRAME].copy()
+        # df = df[df['frame'] >= self.START_FRAME].copy()
 
         df_dia = df[df['phase'] == 'D'].copy()
         df_sys = df[df['phase'] == 'S'].copy()
 
-        df_dia['distance'] = (df_dia['frame'].max() - df_dia['frame']) / self.FRAME_RATE * self.PULLBACK_SPEED
-        df_sys['distance'] = (df_sys['frame'].max() - df_sys['frame']) / self.FRAME_RATE * self.PULLBACK_SPEED
+        df_dia['distance'] = (df_dia['position'] - df_dia['position'].max()) * -1
+        df_sys['distance'] = (df_sys['position'] - df_sys['position'].max()) * -1
+        # df_dia['distance'] = self.estimate_distance(df_dia)
+        # df_sys['distance'] = self.estimate_distance(df_sys)
 
-        df_dia_distance = df_dia['distance'].values
-        df_dia_distance = np.sort(df_dia_distance)[::-1]
-        df_dia['distance'] = df_dia_distance
+        # if sum of first half of df_dia['frame'] is bigger than sum of last half of df_dia['frame'], ascending order otherwise descending same for df_sys
+        if df_dia['frame'].iloc[:len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2:].sum():
+            distance_dia = sorted(df_dia['distance'])
+        else:
+            distance_dia = sorted(df_dia['distance'], reverse=True)
 
-        df_sys_distance = df_sys['distance'].values
-        df_sys_distance = np.sort(df_sys_distance)[::-1]
-        df_sys['distance'] = df_sys_distance
+        if df_sys['frame'].iloc[:len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2:].sum():
+            distance_sys = sorted(df_sys['distance'])
+        else:
+            distance_sys = sorted(df_sys['distance'], reverse=True)
+
+        df_dia['distance'] = distance_dia
+        df_sys['distance'] = distance_sys
 
         return pd.concat([df_dia, df_sys])
 
     @staticmethod
     def polynomial_fit(x, y, degree=10):
-        p = np.polyfit(x, y, degree)
-        return np.polyval(p, x)
+        # Remove NaN and infinite values
+        mask = np.isfinite(x) & np.isfinite(y)
+        x_clean = x[mask]
+        y_clean = y[mask]
+
+        if len(x_clean) < degree + 1:
+            raise ValueError("Not enough valid data points to fit the polynomial.")
+
+        try:
+            p = np.polyfit(x_clean, y_clean, degree)
+            return np.polyval(p, x)
+        except np.linalg.LinAlgError as e:
+            print(f"Error in polynomial fitting: {e}")
+            return np.full_like(x, np.nan)
 
     def fit_curves_sys_dia(self, df, degree=10):
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
@@ -88,6 +129,12 @@ class IvusProcessor:
     def load_data(self, file_path, sep='\t'):
         """Load data from a file."""
         return pd.read_csv(file_path, sep=sep)
+
+    def ensure_directory_exists(self, path):
+        """Ensure the directory for the given path exists."""
+        directory = os.path.dirname(path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
     def plot_data(self, df_rest, df_dobu, variable='lumen_area'):
         """Plot systole and diastole data for rest and stress."""
@@ -197,7 +244,9 @@ class IvusProcessor:
         ax2_frames.set_xlabel('Frames')
         ax2.axhline(y=1.5, color='r', linestyle='--')
 
-        plt.savefig(os.path.join(os.getcwd(), 'comparison.png'))
+        plot_path = os.path.join(os.path.dirname(self.rest_dir), 'comparison.png')
+        self.ensure_directory_exists(plot_path)
+        plt.savefig(plot_path)
 
     def plot_data_comparison(self, df_rest, df_dobu, df_rest_rearranged, df_dobu_rearranged, variable='lumen_area'):
         """Plot original and rearranged systole and diastole data for rest and stress side by side."""
@@ -258,7 +307,10 @@ class IvusProcessor:
         ax4.invert_xaxis()
         ax4.legend()
 
-        plt.savefig(os.path.join(os.getcwd(), 'comparison.png'))
+        plot_path = os.path.join(os.path.dirname(self.rest_dir), 'comparison.png')
+        plot_path = plot_path.replace('\\', '/')
+        self.ensure_directory_exists(plot_path)
+        plt.savefig(plot_path)
 
     def plot_global(self, df_rest, df_dobu):
         fig, ax = plt.subplots(figsize=(10, 5))
@@ -275,7 +327,10 @@ class IvusProcessor:
         ax.invert_xaxis()
         ax.legend()
 
-        plt.savefig(os.path.join(os.getcwd(), 'global.png'))
+        plot_path = os.path.join(os.path.dirname(self.rest_dir), 'global.png')
+        plot_path = plot_path.replace('\\', '/')
+        self.ensure_directory_exists(plot_path)
+        plt.savefig(plot_path)
 
     def plot_global_comparison(self, df_rest, df_dobu, df_rest_rearranged, df_dobu_rearranged, variable='lumen_area'):
         """Plot global data for rest and stress side by side."""
@@ -315,7 +370,10 @@ class IvusProcessor:
         ax2.invert_xaxis()
         ax2.legend()
 
-        plt.savefig(os.path.join(os.getcwd(), 'global_comparison.png'))
+        plot_path = os.path.join(os.path.dirname(self.rest_dir), 'global_comparison.png')
+        plot_path = plot_path.replace('\\', '/')
+        self.ensure_directory_exists(plot_path)
+        plt.savefig(plot_path)
 
     def process_directory(self, directory):
         """Process all txt files in a directory."""
@@ -347,8 +405,8 @@ class IvusProcessor:
         stress_df = next(df for filename, df in stress_data.items() if filename.endswith('_report.txt'))
         stress_df_rearranged = next(df for filename, df in stress_data.items() if filename.endswith('combined_sorted.csv'))
 
-        self.plot_data_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='shortest_distance')
-        self.plot_global_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='shortest_distance')
+        self.plot_data_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='lumen_area')
+        self.plot_global_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='lumen_area')
 
         rest_df.to_csv(os.path.join(self.rest_dir, 'output.csv'))
         stress_df.to_csv(os.path.join(self.stress_dir, 'output.csv'))
@@ -357,6 +415,6 @@ class IvusProcessor:
 
 # Usage
 processor = IvusProcessor(
-    rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest",
-    stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress")
+    rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\rest",
+    stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress")
 processor.run()

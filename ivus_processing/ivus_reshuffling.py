@@ -39,8 +39,8 @@ class Reshuffeling:
             self.sorted_systolic_frames = self.plot_images(self.sorted_systolic_frames, title='Systolic Frames')
             self.plot_comparison(self.diastolic_info, self.sorted_diastolic_info)
             self.plot_comparison(self.systolic_info, self.sorted_systolic_info)
-            self.plot_correlation_matrix(self.diastolic_correlation_matrix, title='Diastolic Correlation Matrix')
-            self.plot_correlation_matrix(self.systolic_correlation_matrix, title='Systolic Correlation Matrix')
+            self.plot_correlation_matrix(self.diastolic_correlation_matrix, title='diastolic_correlation_matrix')
+            self.plot_correlation_matrix(self.systolic_correlation_matrix, title='systolic_correlation_matrix')
             self.rearrange_info_and_save()
         else:
             self.rearrange_info_and_save()

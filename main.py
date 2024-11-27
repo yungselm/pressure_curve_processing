@@ -5,6 +5,7 @@ from omegaconf import DictConfig
 from loguru import logger
 from pressure_processing.signal_processing import SignalProcessing
 from pressure_processing.post_processing import PostProcessing
+from ivus_processing.ivus_main import ivus_main
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
@@ -53,6 +54,8 @@ def main(cfg: DictConfig):
     logger.info("Starting post-processing.")
     post_processor = PostProcessing(output_dir_data, output_dir_ivus)  # Ensure it's called with the correct dirs
     post_processor()
+    
+    ivus_main(cfg)
 
 if __name__ == "__main__":
     main()

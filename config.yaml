@@ -68,3 +68,6 @@ main:
     - systolic_integral_aortic_rest
     - systolic_integral_distal_rest
     - systolic_integral_diff_rest
+
+ivus_main:
+  input_dir: "C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files/"

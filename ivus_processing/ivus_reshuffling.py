@@ -325,6 +325,6 @@ class Reshuffeling:
 if __name__ == '__main__':
     # reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Rest")
     reshuffeling = Reshuffeling(
-        r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress", plot=True
+        r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest", plot=True
     )
     diastolic_frames, systolic_frames = reshuffeling()

@@ -4,24 +4,22 @@ import pandas as pd
 import os
 pd.options.mode.chained_assignment = None  # default='warn'
 
-import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 
-class PressureCurveProcessor:
+class IvusProcessor:
     def __init__(self, rest_dir, stress_dir):
         self.rest_dir = rest_dir
         self.stress_dir = stress_dir
-        self.PULLBACK_SPEED = None
-        self.START_FRAME = None
-        self.FRAME_RATE = None
+        self.rest_dir_rearranged = None
+        self.stress_dir_rearranged = None
+        self.PULLBACK_SPEED = 1
+        self.START_FRAME = 0
+        self.FRAME_RATE = 30
 
     def get_global_variables(self, df):
         """
         Calculates the global variables for the lumen area and elliptic ratio.
         """
-        if df is None or df.empty:
+        if df is None or df.empty or pd.isna(df['pullback_speed'].unique()[0]):
             raise ValueError("The dataframe is empty or not initialized. Please provide a valid dataframe.")
 
         self.PULLBACK_SPEED = df['pullback_speed'].unique()[0]
@@ -33,8 +31,11 @@ class PressureCurveProcessor:
         Prepare data by filtering and calculating distances.
         Uses the global variables for processing.
         """
-        if self.PULLBACK_SPEED is None or self.START_FRAME is None or self.FRAME_RATE is None:
+        try:
             self.get_global_variables(df)
+        except ValueError as e:
+            print(e)
+            print("Using default values for pullback speed, start frame and frame rate.")
 
         df = df[df['phase'] != '-'].copy()
         df = df[df['frame'] >= self.START_FRAME].copy()
@@ -45,6 +46,14 @@ class PressureCurveProcessor:
         df_dia['distance'] = (df_dia['frame'].max() - df_dia['frame']) / self.FRAME_RATE * self.PULLBACK_SPEED
         df_sys['distance'] = (df_sys['frame'].max() - df_sys['frame']) / self.FRAME_RATE * self.PULLBACK_SPEED
 
+        df_dia_distance = df_dia['distance'].values
+        df_dia_distance = np.sort(df_dia_distance)[::-1]
+        df_dia['distance'] = df_dia_distance
+
+        df_sys_distance = df_sys['distance'].values
+        df_sys_distance = np.sort(df_sys_distance)[::-1]
+        df_sys['distance'] = df_sys_distance
+
         return pd.concat([df_dia, df_sys])
 
     @staticmethod
@@ -53,44 +62,29 @@ class PressureCurveProcessor:
         return np.polyval(p, x)
 
     def fit_curves_sys_dia(self, df, degree=10):
-        """Fit polynomial curves for systole and diastole phases."""
-        df['fitted_lumen_area'] = df.groupby('phase', group_keys=False).apply(
-            lambda group: pd.Series(self.polynomial_fit(group['distance'], group['lumen_area'], degree), index=group.index),
-            include_groups=False
-        )
-        df['mean_elliptic_ratio'] = df.groupby('distance')['elliptic_ratio'].transform('mean')
-        df['fitted_elliptic_ratio'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], degree)
-        return df.sort_values(by='distance')
+            """Fits a polynomial curve to the lumen area and elliptic ratio."""
+            df['fitted_lumen_area'] = df.groupby('phase', group_keys=False).apply(
+                lambda group: pd.Series(self.polynomial_fit(group['distance'], group['lumen_area'], degree), index=group.index)
+            )
+            df['mean_elliptic_ratio'] = df.groupby('distance')['elliptic_ratio'].transform('mean')
+            df['fitted_elliptic_ratio'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], degree)
+            df = df.sort_values(by='distance')
+            return df
 
     def fit_curve_global(self, df, degree=4):
-        """Fit polynomial curves for global data."""
+        """Fits a polynomial curve to the lumen area and elliptic ratio."""
         df['fitted_lumen_area_glob'] = self.polynomial_fit(df['distance'], df['lumen_area'], degree)
         df['mean_elliptic_ratio_glob'] = df['elliptic_ratio'].mean()
         df['fitted_elliptic_ratio_glob'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], degree)
-        return df.sort_values(by='distance')
+        df = df.sort_values(by='distance')
+        return df
 
     def load_data(self, file_path, sep='\t'):
         """Load data from a file."""
-        print(f"Loading data from {file_path}")
         return pd.read_csv(file_path, sep=sep)
-
-    def process_directory(self, directory):
-        """Process all txt files in a directory."""
-        print(f"Processing directory: {directory}")
-        files = [f for f in os.listdir(directory) if f.endswith('_report.txt')]
-        dfs = {}
-        for file in files:
-            print(f"Processing file: {file}")
-            df = self.load_data(os.path.join(directory, file))
-            df = self.prep_data(df)
-            df = self.fit_curves_sys_dia(df)
-            df = self.fit_curve_global(df)
-            dfs[file] = df
-        return dfs
 
     def plot_data(self, df_rest, df_dobu):
         """Plot systole and diastole data for rest and stress."""
-        print("Plotting data for rest and stress")
         # Determine the common x-axis limits based on the dataframe with more x-values
         x_min = min(df_rest['distance'].min(), df_dobu['distance'].min())
         x_max = max(df_rest['distance'].max(), df_dobu['distance'].max())
@@ -186,8 +180,57 @@ class PressureCurveProcessor:
 
         plt.show()  # Ensure plots are displayed
 
+    def plot_data_comparison(self, df_rest, df_dobu, df_rest_rearranged, df_dobu_rearranged):
+        """Plot original and rearranged systole and diastole data for rest and stress side by side."""
+        fig, axes = plt.subplots(2, 2, figsize=(20, 10), gridspec_kw={'hspace': 0.4, 'wspace': 0.4})
+
+        # Plot original data for rest
+        ax1 = axes[0, 0]
+        for phase, group in df_rest.groupby('phase'):
+            ax1.plot(group['distance'], group['fitted_lumen_area'], label=f'Rest - {phase}')
+            ax1.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+        ax1.set_title('Original Rest Data')
+        ax1.set_xlabel('Distance (mm)')
+        ax1.set_ylabel('Lumen Area (mm²)')
+        ax1.invert_xaxis()
+        ax1.legend()
+
+        # Plot rearranged data for rest
+        ax2 = axes[0, 1]
+        for phase, group in df_rest_rearranged.groupby('phase'):
+            ax2.plot(group['distance'], group['fitted_lumen_area'], label=f'Rest Rearranged - {phase}')
+            ax2.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+        ax2.set_title('Rearranged Rest Data')
+        ax2.set_xlabel('Distance (mm)')
+        ax2.set_ylabel('Lumen Area (mm²)')
+        ax2.invert_xaxis()
+        ax2.legend()
+
+        # Plot original data for dobutamine
+        ax3 = axes[1, 0]
+        for phase, group in df_dobu.groupby('phase'):
+            ax3.plot(group['distance'], group['fitted_lumen_area'], label=f'Dobutamine - {phase}')
+            ax3.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+        ax3.set_title('Original Dobutamine Data')
+        ax3.set_xlabel('Distance (mm)')
+        ax3.set_ylabel('Lumen Area (mm²)')
+        ax3.invert_xaxis()
+        ax3.legend()
+
+        # Plot rearranged data for dobutamine
+        ax4 = axes[1, 1]
+        for phase, group in df_dobu_rearranged.groupby('phase'):
+            ax4.plot(group['distance'], group['fitted_lumen_area'], label=f'Dobutamine Rearranged - {phase}')
+            ax4.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+        ax4.set_title('Rearranged Dobutamine Data')
+        ax4.set_xlabel('Distance (mm)')
+        ax4.set_ylabel('Lumen Area (mm²)')
+        ax4.invert_xaxis()
+        ax4.legend()
+
+        plt.show()
+
     def plot_global(self, df_rest, df_dobu):
-        print("Plotting global data")
         fig, ax = plt.subplots(figsize=(10, 5))
 
         ax.plot(df_rest['distance'], df_rest['fitted_lumen_area_glob'], label='Rest')
@@ -204,100 +247,89 @@ class PressureCurveProcessor:
 
         plt.show()  # Ensure plots are displayed
 
+    def plot_global_comparison(self, df_rest, df_dobu, df_rest_rearranged, df_dobu_rearranged):
+        """Plot global data for rest and stress side by side."""
+        fig, axes = plt.subplots(1, 2, figsize=(20, 10), gridspec_kw={'hspace': 0.4, 'wspace': 0.4})
+
+        # Plot global data for rest
+        ax1 = axes[0]
+        ax1.plot(df_rest['distance'], df_rest['fitted_lumen_area_glob'], label='Rest')
+        ax1.plot(df_dobu['distance'], df_dobu['fitted_lumen_area_glob'], label='Rest Rearranged')
+        ax1.scatter(df_rest['distance'], df_rest['lumen_area'], alpha=0.3)
+        ax1.scatter(df_dobu['distance'], df_dobu['lumen_area'], alpha=0.3)
+        ax1.set_title('Global Lumen Area vs Distance (Rest)')
+        ax1.set_xlabel('Distance (mm)')
+        ax1.set_ylabel('Lumen Area (mm²)')
+        ax1.invert_xaxis()
+        ax1.legend()
+
+        # Plot global data for dobutamine
+        ax2 = axes[1]
+        ax2.plot(df_rest_rearranged['distance'], df_rest_rearranged['fitted_lumen_area_glob'], label='Dobutamine')
+        ax2.plot(df_dobu_rearranged['distance'], df_dobu_rearranged['fitted_lumen_area_glob'], label='Dobutamine Rearranged')
+        ax2.scatter(df_rest_rearranged['distance'], df_rest_rearranged['lumen_area'], alpha=0.3)
+        ax2.scatter(df_dobu_rearranged['distance'], df_dobu_rearranged['lumen_area'], alpha=0.3)
+        ax2.set_title('Global Lumen Area vs Distance (Dobutamine)')
+        ax2.set_xlabel('Distance (mm)')
+        ax2.set_ylabel('Lumen Area (mm²)')
+        ax2.invert_xaxis()
+        ax2.legend()
+
+        plt.show()
+
+    def process_directory(self, directory):
+        """Process all txt files in a directory."""
+        print(f"Processing directory: {directory}")
+        files = [f for f in os.listdir(directory) if f.endswith('_report.txt') or f.endswith('combined_sorted.csv')]
+        # sort so that _report.txt files come first, so that pullbackspeed etc. from report.txt can be used for combined_sorted.csv
+        files = sorted(files, key=lambda x: x.endswith('_report.txt'), reverse=True)
+        dfs = {}
+        for file in files:
+            print(f"Processing file: {file}")
+            if file.endswith('.txt'):
+                df = self.load_data(os.path.join(directory, file), sep='\t')
+            elif file.endswith('.csv'):
+                df = self.load_data(os.path.join(directory, file), sep=',')
+            df = self.prep_data(df)
+            df = self.fit_curves_sys_dia(df)
+            df = self.fit_curve_global(df)
+            dfs[file] = df
+        return dfs
+    
     def run(self):
         """Main method to process data and generate plots."""
         print("Starting run method")
         rest_data = self.process_directory(self.rest_dir)
         stress_data = self.process_directory(self.stress_dir)
 
-        print("Rest data files:", rest_data.keys())
-        print("Stress data files:", stress_data.keys())
+        rest_df = next(df for filename, df in rest_data.items() if filename.endswith('_report.txt'))
+        rest_df_rearranged = next(df for filename, df in rest_data.items() if filename.endswith('combined_sorted.csv'))
+        stress_df = next(df for filename, df in stress_data.items() if filename.endswith('_report.txt'))
+        stress_df_rearranged = next(df for filename, df in stress_data.items() if filename.endswith('combined_sorted.csv'))
 
-        for rest_file, df_rest in rest_data.items():
-            # Find the corresponding stress file
-            stress_file = rest_file.replace('PD2EZDBF', 'PD616KK1')
-            print(f"Matching {rest_file} with {stress_file}")
-            if stress_file in stress_data:
-                df_stress = stress_data[stress_file]
-                print(f"Plotting data for {rest_file} and {stress_file}")
-                self.plot_data(df_rest, df_stress)
-                self.plot_global(df_rest, df_stress)
-                plt.show()
-        print('Hello world!')
+        self.plot_data_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged)
+        self.plot_global_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged)
+
 
 # Usage
-processor = PressureCurveProcessor(
+processor = IvusProcessor(
     rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest",
     stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress")
 processor.run()
 
 
-
-# class IVUSProcessing:
-#     def __init__(self, path):
-#         self.path = path
-#         self.df_rest = None
-#         self.df_stress = None
-#         self.PULLBACK_SPEED_rest = 1  # mm/s
-#         self.START_FRAME_rest = 0
-#         self.FRAME_RATE_rest = 30  # frames per second
-#         self.PULLBACK_SPEED_stress = 1  # mm/s
-#         self.START_FRAME_stress = 0
-#         self.FRAME_RATE_stress = 30  # frames per second
-
-#     def __call__(self):
-#         self.get_global_variables()
-#         self.df_rest = self.prep_data(self.df_rest, self.START_FRAME, self.FRAME_RATE, self.PULLBACK_SPEED)
-
-#     def read_info(self, path):
-#         """Read IVUS information from a text file."""
-#         info = None
-#         for filename in os.listdir(path):
-#             if '_report' in filename or '_rest' in filename or '_stress' in filename:
-#                 info = pd.read_csv(os.path.join(path, filename), sep='\t')
-#                 break  # Exit the loop once the report file is found
-
-#         if info is None:
-#             raise FileNotFoundError("No report file found in the specified directory.")
-
-#         return info
-    
-#     def get_global_variables(self):
-#         """Calculates the global variables for the lumen area and elliptic ratio."""
-#         if self.df_rest is None:
-#             raise ValueError("No dataframes have been created yet. Please run the prep_data method first.")
-
-#         self.PULLBACK_SPEED = self.df_rest['pullback_speed'].unique()[0]
-#         self.START_FRAME = self.df_rest['pullback_start_frame'].unique()[0]
-#         self.FRAME_RATE = self.df_rest['frame_rate'].unique()[0]
-    
-#     def prep_data(self, df, start_frame, frame_rate, pullback_speed):
-#         """Registers systole and diastole to each other based on the frame number and calculates the distance in mm based on frame rate and pullback speed."""
-#         df = df[df['phase'] != '-'].copy()
-#         df = df[df['frame'] >= start_frame].copy()
-
-#         df_dia = df[df['phase'] == 'D'].copy()
-#         df_sys = df[df['phase'] == 'S'].copy()
-
-#         df_dia.loc[:, 'distance'] = (df_dia['frame'].max() - df_dia['frame']) / frame_rate * pullback_speed
-#         df_sys.loc[:, 'distance'] = (df_sys['frame'].max() - df_sys['frame']) / frame_rate * pullback_speed
-
-#         df = pd.concat([df_dia, df_sys])
-
-#         return df
-
-
-# if __name__ == '__main__':
-#     ivus = IVUSProcessing('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test_files\NARCO_234')
-#     ivus()
-
-
 # df_rest = pd.read_csv(
-#     'C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_234_rest.txt', sep='\t'
+#     r'C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest\PD2EZDBF_report.txt', sep='\t'
 # )
 # df_dobu = pd.read_csv(
-#     'C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_234_stress.txt', sep='\t'
+#     r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress\PD616KK1_report.txt", sep='\t'
 # )
+# df_rest_rearranged = pd.read_csv(
+#     r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest\combined_sorted.csv"
+#     )
+# df_dobu_rearranged = pd.read_csv(
+#     r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress\combined_sorted.csv"
+#     )
 # # df_rest = pd.read_csv(
 # #     'C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports/NARCO_119_rest.txt', sep='\t'
 # # )
@@ -320,6 +352,14 @@ processor.run()
 
 #     df_dia.loc[:, 'distance'] = (df_dia['frame'].max() - df_dia['frame']) / frame_rate * pullback_speed
 #     df_sys.loc[:, 'distance'] = (df_sys['frame'].max() - df_sys['frame']) / frame_rate * pullback_speed
+
+#     df_dia_distance = df_dia['distance'].values
+#     df_dia_distance = np.sort(df_dia_distance)[::-1]  # Ensure descending order
+#     df_dia['distance'] = df_dia_distance
+
+#     df_sys_distance = df_sys['distance'].values
+#     df_sys_distance = np.sort(df_sys_distance)[::-1]  # Ensure descending order
+#     df_sys['distance'] = df_sys_distance
 
 #     df = pd.concat([df_dia, df_sys])
 #     return df
@@ -448,6 +488,58 @@ processor.run()
 
 #     plt.show()
 
+# def plot_data_comparison(df_rest, df_dobu, df_rest_rearranged, df_dobu_rearranged):
+#     """Plot original and rearranged systole and diastole data for rest and stress side by side."""
+#     print("Plotting data comparison for rest and stress")
+
+#     fig, axes = plt.subplots(2, 2, figsize=(20, 10), gridspec_kw={'hspace': 0.4, 'wspace': 0.4})
+
+#     # Plot original data for rest
+#     ax1 = axes[0, 0]
+#     for phase, group in df_rest.groupby('phase'):
+#         ax1.plot(group['distance'], group['fitted_lumen_area'], label=f'Rest - {phase}')
+#         ax1.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+#     ax1.set_title('Original Rest Data')
+#     ax1.set_xlabel('Distance (mm)')
+#     ax1.set_ylabel('Lumen Area (mm²)')
+#     ax1.invert_xaxis()
+#     ax1.legend()
+
+#     # Plot rearranged data for rest
+#     ax2 = axes[0, 1]
+#     for phase, group in df_rest_rearranged.groupby('phase'):
+#         ax2.plot(group['distance'], group['fitted_lumen_area'], label=f'Rest Rearranged - {phase}')
+#         ax2.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+#     ax2.set_title('Rearranged Rest Data')
+#     ax2.set_xlabel('Distance (mm)')
+#     ax2.set_ylabel('Lumen Area (mm²)')
+#     ax2.invert_xaxis()
+#     ax2.legend()
+
+#     # Plot original data for dobutamine
+#     ax3 = axes[1, 0]
+#     for phase, group in df_dobu.groupby('phase'):
+#         ax3.plot(group['distance'], group['fitted_lumen_area'], label=f'Dobutamine - {phase}')
+#         ax3.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+#     ax3.set_title('Original Dobutamine Data')
+#     ax3.set_xlabel('Distance (mm)')
+#     ax3.set_ylabel('Lumen Area (mm²)')
+#     ax3.invert_xaxis()
+#     ax3.legend()
+
+#     # Plot rearranged data for dobutamine
+#     ax4 = axes[1, 1]
+#     for phase, group in df_dobu_rearranged.groupby('phase'):
+#         ax4.plot(group['distance'], group['fitted_lumen_area'], label=f'Dobutamine Rearranged - {phase}')
+#         ax4.scatter(group['distance'], group['lumen_area'], alpha=0.3)
+#     ax4.set_title('Rearranged Dobutamine Data')
+#     ax4.set_xlabel('Distance (mm)')
+#     ax4.set_ylabel('Lumen Area (mm²)')
+#     ax4.invert_xaxis()
+#     ax4.legend()
+
+#     plt.show()
+
 # def plot_global(df_rest, df_dobu):
 #     """Plots fitted_lumen_area_global for rest and dobutamine in the same plot."""
 #     fig, ax = plt.subplots(figsize=(10, 5))
@@ -476,14 +568,27 @@ processor.run()
 
 # df_rest = prep_data(df_rest, START_FRAME, FRAME_RATE, PULLBACK_SPEED)
 # df_dobu = prep_data(df_dobu, START_FRAME, FRAME_RATE, PULLBACK_SPEED)
+# df_rest_rearranged = prep_data(df_rest_rearranged, START_FRAME, FRAME_RATE, PULLBACK_SPEED)
+# df_dobu_rearranged = prep_data(df_dobu_rearranged, START_FRAME, FRAME_RATE, PULLBACK_SPEED)
+
+# print(df_rest.head())
+# print(df_rest_rearranged.head())
 
 # df_rest = fit_curves_sys_dia(df_rest)
 # df_dobu = fit_curves_sys_dia(df_dobu)
+# df_rest_rearranged = fit_curves_sys_dia(df_rest_rearranged)
+# df_dobu_rearranged = fit_curves_sys_dia(df_dobu_rearranged)
+
+# print(df_rest.head())
+# print(df_rest_rearranged.head())
 
 # df_rest = fit_curve_global(df_rest)
 # df_dobu = fit_curve_global(df_dobu)
+# df_rest_rearranged = fit_curve_global(df_rest_rearranged)
+# df_dobu_rearranged = fit_curve_global(df_dobu_rearranged)
 
-# plot_data(df_rest, df_dobu)
+# plot_data_comparison(df_rest, df_dobu, df_rest_rearranged, df_dobu_rearranged)
+# plot_data(df_rest_rearranged, df_dobu_rearranged)
 # plot_global(df_rest, df_dobu)
 
 # create_df_from_dir('C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/000_Reports')

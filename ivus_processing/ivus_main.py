@@ -15,7 +15,7 @@ def ivus_main(cfg: DictConfig):
     """
     Main function to process IVUS data from a folder structure.
     """
-    logger.info(f"Starting IVUS processing with the following configuration: {cfg}")
+    # logger.info(f"Starting IVUS processing with the following configuration: {cfg}")
 
     input_dir = cfg.ivus_main.input_dir
 

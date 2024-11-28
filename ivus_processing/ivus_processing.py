@@ -12,11 +12,32 @@ class IvusProcessor:
     def __init__(self, rest_dir, stress_dir):
         self.rest_dir = rest_dir
         self.stress_dir = stress_dir
+        self.name_dir = self.patient_id_from_dir(rest_dir)
         self.rest_dir_rearranged = None
         self.stress_dir_rearranged = None
+        self.phase_order = 10
+        self.global_order = 4
+        self.estimate_distance_true = 0 # if one the distance is estimated by hr, more error prone but works for faulty metadata with late pullback start
         self.PULLBACK_SPEED = 1
         self.START_FRAME = 0
         self.FRAME_RATE = 30
+
+    def patient_id_from_dir(self, directory):
+        """Extract the patient ID from the directory name. by keeping only NARCO_XX"""
+        # remove \rest or \stress from the directory
+        directory = directory.replace("\\rest", "").replace("\\stress", "")
+        return directory.split("/")[-1]
+
+    def get_order_and_estimate(self):
+        # read them from the excel file at "C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\00_polynomial_fit_all.xlsx"
+        try:
+            order_list = pd.read_excel(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\00_polynomial_fit_all.xlsx")
+            self.phase_order = order_list[order_list['narco_id'] == self.name_dir]['phase_order'].values[0]
+            self.global_order = order_list[order_list['narco_id'] == self.name_dir]['global_order'].values[0]
+            self.estimate_distance_true = order_list[order_list['narco_id'] == self.name_dir]['estimate_distance_true'].values[0]
+
+        except Exception as e:
+            logger.error(f"Error reading polynomial fit orders or estimate of distance: {e}. Using default values.")
 
     def get_global_variables(self, df):
         """
@@ -56,8 +77,7 @@ class IvusProcessor:
         try:
             self.get_global_variables(df)
         except ValueError as e:
-            print(e)
-            print("Using default values for pullback speed, start frame and frame rate.")
+            logger.error(f'{e}. Using default values for pullback speed, start frame and frame rate.')
 
         df = df[df['phase'] != '-'].copy()
         # df = df[df['frame'] >= self.START_FRAME].copy()
@@ -65,10 +85,13 @@ class IvusProcessor:
         df_dia = df[df['phase'] == 'D'].copy()
         df_sys = df[df['phase'] == 'S'].copy()
 
-        df_dia['distance'] = (df_dia['position'] - df_dia['position'].max()) * -1
-        df_sys['distance'] = (df_sys['position'] - df_sys['position'].max()) * -1
-        # df_dia['distance'] = self.estimate_distance(df_dia)
-        # df_sys['distance'] = self.estimate_distance(df_sys)
+
+        if self.estimate_distance_true == 1:
+            df_dia['distance'] = self.estimate_distance(df_dia)
+            df_sys['distance'] = self.estimate_distance(df_sys)
+        else:
+            df_dia['distance'] = (df_dia['position'] - df_dia['position'].max()) * -1
+            df_sys['distance'] = (df_sys['position'] - df_sys['position'].max()) * -1
 
         # if sum of first half of df_dia['frame'] is bigger than sum of last half of df_dia['frame'], ascending order otherwise descending same for df_sys
         if df_dia['frame'].iloc[: len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2 :].sum():
@@ -100,34 +123,34 @@ class IvusProcessor:
             p = np.polyfit(x_clean, y_clean, degree)
             return np.polyval(p, x)
         except np.linalg.LinAlgError as e:
-            print(f"Error in polynomial fitting: {e}")
+            logger.error(f"Error in polynomial fitting: {e}")
             return np.full_like(x, np.nan)
 
-    def fit_curves_sys_dia(self, df, degree=10):
+    def fit_curves_sys_dia(self, df):
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
         df['fitted_lumen_area'] = df.groupby('phase', group_keys=False).apply(
             lambda group: pd.Series(
-                self.polynomial_fit(group['distance'], group['lumen_area'], degree), index=group.index
+                self.polynomial_fit(group['distance'], group['lumen_area'], self.phase_order), index=group.index
             ),
             include_groups=False,
         )
         df['mean_elliptic_ratio'] = df.groupby('distance')['elliptic_ratio'].transform('mean')
-        df['fitted_elliptic_ratio'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], degree)
+        df['fitted_elliptic_ratio'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], self.phase_order)
         df['fitted_shortest_distance'] = df.groupby('phase', group_keys=False).apply(
             lambda group: pd.Series(
-                self.polynomial_fit(group['distance'], group['shortest_distance'], degree), index=group.index
+                self.polynomial_fit(group['distance'], group['shortest_distance'], self.phase_order), index=group.index
             ),
             include_groups=False,
         )
         df = df.sort_values(by='distance')
         return df
 
-    def fit_curve_global(self, df, degree=4):
+    def fit_curve_global(self, df):
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
-        df['fitted_lumen_area_glob'] = self.polynomial_fit(df['distance'], df['lumen_area'], degree)
+        df['fitted_lumen_area_glob'] = self.polynomial_fit(df['distance'], df['lumen_area'], self.global_order)
         df['mean_elliptic_ratio_glob'] = df['elliptic_ratio'].mean()
-        df['fitted_elliptic_ratio_glob'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], degree)
-        df['fitted_shortest_distance_glob'] = self.polynomial_fit(df['distance'], df['shortest_distance'], degree)
+        df['fitted_elliptic_ratio_glob'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], self.global_order)
+        df['fitted_shortest_distance_glob'] = self.polynomial_fit(df['distance'], df['shortest_distance'], self.global_order)
         df = df.sort_values(by='distance')
         return df
 
@@ -354,10 +377,10 @@ class IvusProcessor:
         # Plot global data for rest
         ax1 = axes[0]
         ax1.plot(df_rest['distance'], df_rest[fitted], label='Rest')
-        ax1.plot(df_dobu['distance'], df_dobu[fitted], label='Rest Rearranged')
+        ax1.plot(df_dobu['distance'], df_dobu[fitted], label='Dobutamine')
         ax1.scatter(df_rest['distance'], df_rest[norm], alpha=0.3)
         ax1.scatter(df_dobu['distance'], df_dobu[norm], alpha=0.3)
-        ax1.set_title('Global Lumen Area vs Distance (Rest)')
+        ax1.set_title('Global Lumen Area vs Distance')
         ax1.set_xlabel('Distance (mm)')
         ax1.set_ylabel(ylabel)
         ax1.invert_xaxis()
@@ -365,11 +388,11 @@ class IvusProcessor:
 
         # Plot global data for dobutamine
         ax2 = axes[1]
-        ax2.plot(df_rest_rearranged['distance'], df_rest_rearranged[fitted], label='Dobutamine')
+        ax2.plot(df_rest_rearranged['distance'], df_rest_rearranged[fitted], label='Rest Rearranged')
         ax2.plot(df_dobu_rearranged['distance'], df_dobu_rearranged[fitted], label='Dobutamine Rearranged')
         ax2.scatter(df_rest_rearranged['distance'], df_rest_rearranged[norm], alpha=0.3)
         ax2.scatter(df_dobu_rearranged['distance'], df_dobu_rearranged[norm], alpha=0.3)
-        ax2.set_title('Global Lumen Area vs Distance (Dobutamine)')
+        ax2.set_title('Global Lumen Area vs Distance (Rearranged)')
         ax2.set_xlabel('Distance (mm)')
         ax2.set_ylabel(ylabel)
         ax2.invert_xaxis()
@@ -382,7 +405,6 @@ class IvusProcessor:
 
     def process_directory(self, directory):
         """Process all txt files in a directory."""
-        print(f"Processing directory: {directory}")
         if 'combined_sorted_manual.csv' in os.listdir(directory):
             files = [f for f in os.listdir(directory) if f.endswith('_report.txt') or f == 'combined_sorted_manual.csv']
         else:
@@ -391,7 +413,6 @@ class IvusProcessor:
         files = sorted(files, key=lambda x: x.endswith('_report.txt'), reverse=True)
         dfs = {}
         for file in files:
-            print(f"Processing file: {file}")
             if file.endswith('.txt'):
                 df = self.load_data(os.path.join(directory, file), sep='\t')
             elif file.endswith('.csv'):
@@ -404,7 +425,8 @@ class IvusProcessor:
 
     def run(self):
         """Main method to process data and generate plots."""
-        print("Starting run method")
+        self.get_order_and_estimate()
+
         rest_data = self.process_directory(self.rest_dir)
         stress_data = self.process_directory(self.stress_dir)
 
@@ -426,9 +448,9 @@ class IvusProcessor:
         stress_df_rearranged.to_csv(os.path.join(self.stress_dir, 'output_rearranged.csv'))
 
 
-# Usage
-processor = IvusProcessor(
-    rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\rest",
-    stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress",
-)
-processor.run()
+if __name__ == "__main__":
+    processor = IvusProcessor(
+        rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\rest",
+        stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress",
+    )
+    processor.run()

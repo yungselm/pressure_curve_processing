@@ -2,8 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+import tqdm
 
 pd.options.mode.chained_assignment = None  # default='warn'
+from statsmodels.nonparametric.smoothers_lowess import lowess
+
 
 from loguru import logger
 
@@ -17,7 +20,7 @@ class IvusProcessor:
         self.stress_dir_rearranged = None
         self.phase_order = 10
         self.global_order = 4
-        self.estimate_distance_true = 0 # if one the distance is estimated by hr, more error prone but works for faulty metadata with late pullback start
+        self.estimate_distance_true = 0  # if one the distance is estimated by hr, more error prone but works for faulty metadata with late pullback start
         self.PULLBACK_SPEED = 1
         self.START_FRAME = 0
         self.FRAME_RATE = 30
@@ -29,12 +32,19 @@ class IvusProcessor:
         return directory.split("/")[-1]
 
     def get_order_and_estimate(self):
-        # read them from the excel file at "C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\00_polynomial_fit_all.xlsx"
         try:
-            order_list = pd.read_excel(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\00_polynomial_fit_all.xlsx")
-            self.phase_order = order_list[order_list['narco_id'] == self.name_dir]['phase_order'].values[0]
-            self.global_order = order_list[order_list['narco_id'] == self.name_dir]['global_order'].values[0]
-            self.estimate_distance_true = order_list[order_list['narco_id'] == self.name_dir]['estimate_distance_true'].values[0]
+            order_list = pd.read_excel(
+                r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\00_polynomial_fit_all.xlsx"
+            )
+            if order_list.empty:
+                raise ValueError("Excel file is empty or does not have the required data.")
+            matching_row = order_list[order_list['narco_id'] == self.name_dir]
+            if matching_row.empty:
+                raise ValueError(f"No matching narco_id found for {self.name_dir}.")
+            
+            self.phase_order = matching_row['phase_order'].values[0]
+            self.global_order = matching_row['global_order'].values[0]
+            self.estimate_distance_true = matching_row['estimate_distance_true'].values[0]
 
         except Exception as e:
             logger.error(f"Error reading polynomial fit orders or estimate of distance: {e}. Using default values.")
@@ -62,7 +72,7 @@ class IvusProcessor:
         time_intervals = frame_diffs / self.FRAME_RATE  # Time interval in seconds
 
         # Calculate distance for each interval based on pullback speed (mm/s)
-        distances = time_intervals * self.PULLBACK_SPEED
+        distances = time_intervals * self.PULLBACK_SPEED 
 
         # Generate cumulative distance, starting at 0
         cumulative_distance = np.cumsum(np.insert(distances, 0, 0))
@@ -77,14 +87,14 @@ class IvusProcessor:
         try:
             self.get_global_variables(df)
         except ValueError as e:
-            logger.error(f'{e}. Using default values for pullback speed, start frame and frame rate.')
+            print(e)
+            print("Using default values for pullback speed, start frame and frame rate.")
 
         df = df[df['phase'] != '-'].copy()
         # df = df[df['frame'] >= self.START_FRAME].copy()
 
         df_dia = df[df['phase'] == 'D'].copy()
         df_sys = df[df['phase'] == 'S'].copy()
-
 
         if self.estimate_distance_true == 1:
             df_dia['distance'] = self.estimate_distance(df_dia)
@@ -94,12 +104,12 @@ class IvusProcessor:
             df_sys['distance'] = (df_sys['position'] - df_sys['position'].max()) * -1
 
         # if sum of first half of df_dia['frame'] is bigger than sum of last half of df_dia['frame'], ascending order otherwise descending same for df_sys
-        if df_dia['frame'].iloc[: len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2 :].sum():
+        if df_dia['frame'].iloc[:len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2:].sum():
             distance_dia = sorted(df_dia['distance'])
         else:
             distance_dia = sorted(df_dia['distance'], reverse=True)
 
-        if df_sys['frame'].iloc[: len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2 :].sum():
+        if df_sys['frame'].iloc[:len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2:].sum():
             distance_sys = sorted(df_sys['distance'])
         else:
             distance_sys = sorted(df_sys['distance'], reverse=True)
@@ -109,48 +119,86 @@ class IvusProcessor:
 
         return pd.concat([df_dia, df_sys])
 
+
     @staticmethod
-    def polynomial_fit(x, y, degree=10):
-        # Remove NaN and infinite values
-        mask = np.isfinite(x) & np.isfinite(y)
-        x_clean = x[mask]
-        y_clean = y[mask]
+    def loess_fit(x, y, frac=0.35, ci=False):
+        # Data
+        x = x.to_numpy()
+        y = y.to_numpy()
 
-        if len(x_clean) < degree + 1:
-            raise ValueError("Not enough valid data points to fit the polynomial.")
+        # Perform LOESS smoothing
+        smoothed = lowess(y, x, frac=frac, return_sorted=True)
+        x_smooth, y_smooth = smoothed[:, 0], smoothed[:, 1]
 
-        try:
-            p = np.polyfit(x_clean, y_clean, degree)
-            return np.polyval(p, x)
-        except np.linalg.LinAlgError as e:
-            logger.error(f"Error in polynomial fitting: {e}")
-            return np.full_like(x, np.nan)
+        # Bootstrapping for Confidence Intervals
+        n_boot = 1000  # Number of bootstrap samples
+        boot_preds = []
+
+        if ci:
+            for _ in tqdm.tqdm(range(n_boot), desc=f"Bootstrapping for {os.path.basename(__file__)}"):
+                # Resample with replacement
+                indices = np.random.choice(len(x), len(x), replace=True)
+                x_boot, y_boot = x[indices], y[indices]
+
+                # Fit LOESS to resampled data
+                smoothed_boot = lowess(y_boot, x_boot, frac=frac, return_sorted=True)
+                boot_preds.append(np.interp(x_smooth, smoothed_boot[:, 0], smoothed_boot[:, 1]))
+
+            boot_preds = np.array(boot_preds)
+
+            # Calculate confidence intervals (e.g., 95%)
+            ci_lower = np.percentile(boot_preds, 2.5, axis=0)
+            ci_upper = np.percentile(boot_preds, 97.5, axis=0)
+
+        else:
+            ci_lower = y_smooth
+            ci_upper = y_smooth
+
+        return y_smooth, ci_lower, ci_upper
 
     def fit_curves_sys_dia(self, df):
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
-        df['fitted_lumen_area'] = df.groupby('phase', group_keys=False).apply(
-            lambda group: pd.Series(
-                self.polynomial_fit(group['distance'], group['lumen_area'], self.phase_order), index=group.index
-            ),
-            include_groups=False,
-        )
+        # Ensure distance is sorted within each phase
+        fitted_results = df.groupby('phase').apply(
+            lambda group: pd.DataFrame({
+                'fitted_lumen_area': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['lumen_area'])[0],
+                'area_ci_lower': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['lumen_area'])[1],
+                'area_ci_upper': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['lumen_area'])[2]
+            }, index=group.index)
+        ).reset_index(drop=True)
+        
+        df = df.reset_index(drop=True)
+        df = pd.concat([df, fitted_results], axis=1)
+        
+        # Ensure sorted and consistent distance for mean elliptic ratio
         df['mean_elliptic_ratio'] = df.groupby('distance')['elliptic_ratio'].transform('mean')
-        df['fitted_elliptic_ratio'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], self.phase_order)
-        df['fitted_shortest_distance'] = df.groupby('phase', group_keys=False).apply(
-            lambda group: pd.Series(
-                self.polynomial_fit(group['distance'], group['shortest_distance'], self.phase_order), index=group.index
-            ),
-            include_groups=False,
-        )
-        df = df.sort_values(by='distance')
-        return df
+        df = df.sort_values('distance').reset_index(drop=True)  # Sort overall for consistency and reset index
+        fitted_elliptic_results = pd.DataFrame({
+            'fitted_elliptic_ratio': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[0],
+            'elliptic_ci_lower': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[1],
+            'elliptic_ci_upper': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[2]
+        }).reset_index(drop=True)
+        
+        df = pd.concat([df, fitted_elliptic_results], axis=1)
+        
+        # Apply similar fixes for shortest distance
+        fitted_shortest_results = df.groupby('phase').apply(
+            lambda group: pd.DataFrame({
+                'fitted_shortest_distance': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['shortest_distance'])[0],
+                'shortest_ci_lower': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['shortest_distance'])[1],
+                'shortest_ci_upper': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['shortest_distance'])[2]
+            }, index=group.index)
+        ).reset_index(drop=True)
+        
+        df = pd.concat([df, fitted_shortest_results], axis=1)
+        return df.sort_values(by='distance').reset_index(drop=True)  # Final sort and reset index
 
     def fit_curve_global(self, df):
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
-        df['fitted_lumen_area_glob'] = self.polynomial_fit(df['distance'], df['lumen_area'], self.global_order)
+        df['fitted_lumen_area_glob'], df['area_ci_lower_glob'], df['area_ci_upper_glob'] = self.loess_fit(df['distance'], df['lumen_area'])
         df['mean_elliptic_ratio_glob'] = df['elliptic_ratio'].mean()
-        df['fitted_elliptic_ratio_glob'] = self.polynomial_fit(df['distance'], df['mean_elliptic_ratio'], self.global_order)
-        df['fitted_shortest_distance_glob'] = self.polynomial_fit(df['distance'], df['shortest_distance'], self.global_order)
+        df['fitted_elliptic_ratio_glob'], df['elliptic_ci_lower_glob'], df['elliptic_ci_upper_glob'] = self.loess_fit(df['distance'], df['mean_elliptic_ratio'])
+        df['fitted_shortest_distance_glob'], df['shortest_ci_lower_glob'], df['shortest_ci_upper_glob'] = self.loess_fit(df['distance'], df['shortest_distance'])
         df = df.sort_values(by='distance')
         return df
 
@@ -164,118 +212,6 @@ class IvusProcessor:
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-    def plot_data(self, df_rest, df_dobu, variable='lumen_area'):
-        """Plot systole and diastole data for rest and stress."""
-        # Determine the common x-axis limits based on the dataframe with more x-values
-        if variable == 'lumen_area':
-            norm = 'lumen_area'
-            fitted = 'fitted_lumen_area'
-            ylabel = 'Lumen Area (mm²) and Elliptic Ratio'
-            title = 'Lumen Area vs Distance'
-        elif variable == 'shortest_distance':
-            norm = 'shortest_distance'
-            fitted = 'fitted_shortest_distance'
-            ylabel = 'Shortest Distance (mm) and Elliptic Ratio'
-            title = 'Shortest Distance vs Distance'
-        else:
-            raise ValueError(f"Variable {variable} not supported.")
-
-        x_min = min(df_rest['distance'].min(), df_dobu['distance'].min())
-        x_max = max(df_rest['distance'].max(), df_dobu['distance'].max())
-
-        # Determine the common y-axis limits based on the dataframe with more y-values
-        y_min_lumen = min(df_rest[norm].min(), df_dobu[norm].min())
-        y_max_lumen = max(df_rest[norm].max(), df_dobu[norm].max())
-        y_min_elliptic = min(df_rest['mean_elliptic_ratio'].min(), df_dobu['mean_elliptic_ratio'].min())
-        y_max_elliptic = max(df_rest['mean_elliptic_ratio'].max(), df_dobu['mean_elliptic_ratio'].max())
-
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), gridspec_kw={'hspace': 0.4})
-
-        # Plot lumen area for rest
-        for phase, group in df_rest.groupby('phase'):
-            ax1.plot(group['distance'], group[fitted], label=f'Rest - {phase}')
-            ax1.scatter(group['distance'], group[norm], alpha=0.3)
-
-        # Highlight the smallest lumen area for rest
-        min_lumen_area_rest = df_rest[norm].min()
-        min_lumen_area_frame_rest = df_rest.loc[df_rest[norm].idxmin(), 'frame']
-        min_lumen_area_distance_rest = df_rest.loc[df_rest[norm].idxmin(), 'distance']
-
-        ax1.scatter(min_lumen_area_distance_rest, min_lumen_area_rest, color='#0055ff', zorder=5)
-        ax1.text(
-            min_lumen_area_distance_rest,
-            min_lumen_area_rest,
-            f'{min_lumen_area_rest:.2f} ({min_lumen_area_frame_rest})',
-            color='#0055ff',
-        )
-
-        # Overlay mean elliptic ratio for rest
-        ax1.plot(
-            df_rest['distance'], df_rest['fitted_elliptic_ratio'], color='darkblue', label='Mean Elliptic Ratio - Rest'
-        )
-
-        ax1.set_xlim(x_min, x_max)
-        ax1.set_ylim(min(y_min_lumen, y_min_elliptic), max(y_max_lumen, y_max_elliptic))
-        ax1.set_xlabel('Distance (mm)')
-        ax1.set_ylabel(ylabel)
-        ax1.set_title(title)
-        ax1.invert_xaxis()
-        ax1.legend()
-
-        # Add a second x-axis for frames
-        ax1_frames = ax1.twiny()
-        ax1_frames.set_xlim(ax1.get_xlim())
-        ax1_frames.set_xticks(df_rest['distance'][::5])
-        ax1_frames.set_xticklabels(df_rest['frame'][::5])
-        ax1_frames.set_xlabel('Frames')
-        ax1.axhline(y=1.5, color='r', linestyle='--')
-
-        # Plot lumen area for dobutamine
-        for phase, group in df_dobu.groupby('phase'):
-            ax2.plot(group['distance'], group[fitted], label=f'Dobutamine - {phase}')
-            ax2.scatter(group['distance'], group[norm], alpha=0.3)
-
-        # Highlight the smallest lumen area for dobutamine
-        min_lumen_area_dobu = df_dobu[norm].min()
-        min_lumen_area_frame_dobu = df_dobu.loc[df_dobu[norm].idxmin(), 'frame']
-        min_lumen_area_distance_dobu = df_dobu.loc[df_dobu[norm].idxmin(), 'distance']
-
-        ax2.scatter(min_lumen_area_distance_dobu, min_lumen_area_dobu, color='#0055ff', zorder=5)
-        ax2.text(
-            min_lumen_area_distance_dobu,
-            min_lumen_area_dobu,
-            f'{min_lumen_area_dobu:.2f} ({min_lumen_area_frame_dobu})',
-            color='#0055ff',
-        )
-
-        # Overlay mean elliptic ratio for dobutamine
-        ax2.plot(
-            df_dobu['distance'],
-            df_dobu['fitted_elliptic_ratio'],
-            color='darkblue',
-            label='Mean Elliptic Ratio - Dobutamine',
-        )
-
-        ax2.set_xlim(x_min, x_max)
-        ax2.set_ylim(min(y_min_lumen, y_min_elliptic), max(y_max_lumen, y_max_elliptic))
-        ax2.set_xlabel('Distance (mm)')
-        ax2.set_ylabel(ylabel)
-        ax2.set_title(title)
-        ax2.invert_xaxis()
-        ax2.legend()
-
-        # Add a second x-axis for frames
-        ax2_frames = ax2.twiny()
-        ax2_frames.set_xlim(ax2.get_xlim())
-        ax2_frames.set_xticks(df_dobu['distance'][::5])
-        ax2_frames.set_xticklabels(df_dobu['frame'][::5])
-        ax2_frames.set_xlabel('Frames')
-        ax2.axhline(y=1.5, color='r', linestyle='--')
-
-        plot_path = os.path.join(os.path.dirname(self.rest_dir), 'comparison.png')
-        self.ensure_directory_exists(plot_path)
-        plt.savefig(plot_path)
-
     def plot_data_comparison(self, df_rest, df_dobu, df_rest_rearranged, df_dobu_rearranged, variable='lumen_area'):
         """Plot original and rearranged systole and diastole data for rest and stress side by side."""
         if variable == 'lumen_area':
@@ -288,13 +224,14 @@ class IvusProcessor:
             ylabel = 'Shortest Distance (mm)'
         else:
             raise ValueError(f"Variable {variable} not supported.")
-
+        
         fig, axes = plt.subplots(2, 2, figsize=(20, 10), gridspec_kw={'hspace': 0.4, 'wspace': 0.4})
 
         # Plot original data for rest
         ax1 = axes[0, 0]
         for phase, group in df_rest.groupby('phase'):
             ax1.plot(group['distance'], group[fitted], label=f'Rest - {phase}')
+            ax1.fill_between(group['distance'], group['area_ci_lower'], group['area_ci_upper'], color='blue', alpha=0.2)
             ax1.scatter(group['distance'], group[norm], alpha=0.3)
         ax1.set_title('Original Rest Data')
         ax1.set_xlabel('Distance (mm)')
@@ -306,6 +243,7 @@ class IvusProcessor:
         ax2 = axes[0, 1]
         for phase, group in df_rest_rearranged.groupby('phase'):
             ax2.plot(group['distance'], group[fitted], label=f'Rest Rearranged - {phase}')
+            ax2.fill_between(group['distance'], group['area_ci_lower'], group['area_ci_upper'], color='blue', alpha=0.2)
             ax2.scatter(group['distance'], group[norm], alpha=0.3)
         ax2.set_title('Rearranged Rest Data')
         ax2.set_xlabel('Distance (mm)')
@@ -318,6 +256,7 @@ class IvusProcessor:
         for phase, group in df_dobu.groupby('phase'):
             ax3.plot(group['distance'], group[fitted], label=f'Dobutamine - {phase}')
             ax3.scatter(group['distance'], group[norm], alpha=0.3)
+            ax3.fill_between(group['distance'], group['area_ci_lower'], group['area_ci_upper'], color='blue', alpha=0.2)
         ax3.set_title('Original Dobutamine Data')
         ax3.set_xlabel('Distance (mm)')
         ax3.set_ylabel(ylabel)
@@ -329,6 +268,7 @@ class IvusProcessor:
         for phase, group in df_dobu_rearranged.groupby('phase'):
             ax4.plot(group['distance'], group[fitted], label=f'Dobutamine Rearranged - {phase}')
             ax4.scatter(group['distance'], group[norm], alpha=0.3)
+            ax4.fill_between(group['distance'], group['area_ci_lower'], group['area_ci_upper'], color='blue', alpha=0.2)
         ax4.set_title('Rearranged Dobutamine Data')
         ax4.set_xlabel('Distance (mm)')
         ax4.set_ylabel(ylabel)
@@ -336,26 +276,6 @@ class IvusProcessor:
         ax4.legend()
 
         plot_path = os.path.join(os.path.dirname(self.rest_dir), 'comparison.png')
-        plot_path = plot_path.replace('\\', '/')
-        self.ensure_directory_exists(plot_path)
-        plt.savefig(plot_path)
-
-    def plot_global(self, df_rest, df_dobu):
-        fig, ax = plt.subplots(figsize=(10, 5))
-
-        ax.plot(df_rest['distance'], df_rest['fitted_lumen_area_glob'], label='Rest')
-        ax.plot(df_dobu['distance'], df_dobu['fitted_lumen_area_glob'], label='Dobutamine')
-        # plot all points where phase is not '-'
-        ax.scatter(df_rest['distance'], df_rest['lumen_area'], alpha=0.3)
-        ax.scatter(df_dobu['distance'], df_dobu['lumen_area'], alpha=0.3)
-
-        ax.set_xlabel('Distance (mm)')
-        ax.set_ylabel('Lumen Area (mm²)')
-        ax.set_title('Global Lumen Area vs Distance')
-        ax.invert_xaxis()
-        ax.legend()
-
-        plot_path = os.path.join(os.path.dirname(self.rest_dir), 'global.png')
         plot_path = plot_path.replace('\\', '/')
         self.ensure_directory_exists(plot_path)
         plt.savefig(plot_path)
@@ -378,6 +298,8 @@ class IvusProcessor:
         ax1 = axes[0]
         ax1.plot(df_rest['distance'], df_rest[fitted], label='Rest')
         ax1.plot(df_dobu['distance'], df_dobu[fitted], label='Dobutamine')
+        ax1.fill_between(df_rest['distance'], df_rest['area_ci_lower_glob'], df_rest['area_ci_upper_glob'], color='blue', alpha=0.2)
+        ax1.fill_between(df_dobu['distance'], df_dobu['area_ci_lower_glob'], df_dobu['area_ci_upper_glob'], color='blue', alpha=0.2)
         ax1.scatter(df_rest['distance'], df_rest[norm], alpha=0.3)
         ax1.scatter(df_dobu['distance'], df_dobu[norm], alpha=0.3)
         ax1.set_title('Global Lumen Area vs Distance')
@@ -390,6 +312,8 @@ class IvusProcessor:
         ax2 = axes[1]
         ax2.plot(df_rest_rearranged['distance'], df_rest_rearranged[fitted], label='Rest Rearranged')
         ax2.plot(df_dobu_rearranged['distance'], df_dobu_rearranged[fitted], label='Dobutamine Rearranged')
+        ax2.fill_between(df_rest_rearranged['distance'], df_rest_rearranged['area_ci_lower_glob'], df_rest_rearranged['area_ci_upper_glob'], color='blue', alpha=0.2)
+        ax2.fill_between(df_dobu_rearranged['distance'], df_dobu_rearranged['area_ci_lower_glob'], df_dobu_rearranged['area_ci_upper_glob'], color='blue', alpha=0.2)
         ax2.scatter(df_rest_rearranged['distance'], df_rest_rearranged[norm], alpha=0.3)
         ax2.scatter(df_dobu_rearranged['distance'], df_dobu_rearranged[norm], alpha=0.3)
         ax2.set_title('Global Lumen Area vs Distance (Rearranged)')
@@ -414,17 +338,20 @@ class IvusProcessor:
         dfs = {}
         for file in files:
             if file.endswith('.txt'):
+                flag = 1
                 df = self.load_data(os.path.join(directory, file), sep='\t')
             elif file.endswith('.csv'):
+                flag = 0
                 df = self.load_data(os.path.join(directory, file), sep=',')
             df = self.prep_data(df)
             df = self.fit_curves_sys_dia(df)
             df = self.fit_curve_global(df)
             dfs[file] = df
         return dfs
-
+    
     def run(self):
         """Main method to process data and generate plots."""
+        print("Starting run method")
         self.get_order_and_estimate()
 
         rest_data = self.process_directory(self.rest_dir)
@@ -432,12 +359,35 @@ class IvusProcessor:
 
         try:
             rest_df = next(df for filename, df in rest_data.items() if filename.endswith('_report.txt'))
-            rest_df_rearranged = next(df for filename, df in rest_data.items() if filename.endswith('combined_sorted.csv') or filename == 'combined_sorted_manual.csv')
+            rest_df_rearranged = next(
+                df
+                for filename, df in rest_data.items()
+                if filename.endswith('combined_sorted.csv') or filename == 'combined_sorted_manual.csv'
+            )
             stress_df = next(df for filename, df in stress_data.items() if filename.endswith('_report.txt'))
-            stress_df_rearranged = next(df for filename, df in stress_data.items() if filename.endswith('combined_sorted.csv') or filename == 'combined_sorted_manual.csv')
+            stress_df_rearranged = next(
+                df
+                for filename, df in stress_data.items()
+                if filename.endswith('combined_sorted.csv') or filename == 'combined_sorted_manual.csv'
+            )
         except StopIteration:
             logger.error("Required files not found in the directories.")
             return
+        
+        # make a check, if first half of fitted_lumen_area is bigger than second half, reverse all columns beginning with fitted while keeping other columns
+        if (rest_df['lumen_area'] - rest_df['fitted_lumen_area']).abs().sum() > (rest_df['lumen_area'] - rest_df['fitted_lumen_area'][::-1]).abs().sum():
+            for col in rest_df.columns:
+                if col.startswith('fitted'):
+                    rest_df[col] = rest_df[col].values[::-1]
+        
+        if (stress_df['lumen_area'] - stress_df['fitted_lumen_area']).abs().sum() > (stress_df['lumen_area'] - stress_df['fitted_lumen_area'][::-1]).abs().sum():
+            for col in stress_df.columns:
+                if col.startswith('fitted'):
+                    stress_df[col] = stress_df[col].values[::-1]
+
+        # reset indices
+        rest_df = rest_df.reset_index(drop=True)
+        stress_df = stress_df.reset_index(drop=True)
 
         self.plot_data_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='lumen_area')
         self.plot_global_comparison(rest_df, stress_df, rest_df_rearranged, stress_df_rearranged, variable='lumen_area')
@@ -447,10 +397,8 @@ class IvusProcessor:
         rest_df_rearranged.to_csv(os.path.join(self.rest_dir, 'output_rearranged.csv'))
         stress_df_rearranged.to_csv(os.path.join(self.stress_dir, 'output_rearranged.csv'))
 
-
-if __name__ == "__main__":
-    processor = IvusProcessor(
-        rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\rest",
-        stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress",
-    )
-    processor.run()
+# Usage
+processor = IvusProcessor(
+    rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\rest",
+    stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress")
+processor.run()

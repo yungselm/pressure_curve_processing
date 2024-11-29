@@ -17,11 +17,11 @@ openpyxl = "*"
 matplotlib = "*"
 tqdm = "*"
 colorama = "*"
-PyQt5 = "5.15.2"
 opencv-python = "*"
 plotly = "*"
 mplcursors = "*"
 ipywidgets = "*"
+statsmodels = "*"
 
 [tool.poetry.group.dev.dependencies]
 autohooks = "^23.1.0"

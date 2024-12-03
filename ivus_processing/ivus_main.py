@@ -41,5 +41,8 @@ def ivus_main(cfg: DictConfig):
             processing = IvusProcessor(rest_dir, stress_dir)
             processing.run()
 
+        if cfg.ivus_main.data_prep:
+            pass
+
 if __name__ == "__main__":
     ivus_main()

@@ -1,21 +1,25 @@
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import os
-import tqdm
 
 pd.options.mode.chained_assignment = None  # default='warn'
-from statsmodels.nonparametric.smoothers_lowess import lowess
 
-
+import tqdm
 from loguru import logger
+from statsmodels.nonparametric.smoothers_lowess import lowess
+from utils import patient_id_from_dir
 
 
 class IvusProcessor:
     def __init__(self, rest_dir, stress_dir):
         self.rest_dir = rest_dir
         self.stress_dir = stress_dir
-        self.name_dir = self.patient_id_from_dir(rest_dir)
+        self.name_dir = patient_id_from_dir(rest_dir)
         self.rest_dir_rearranged = None
         self.stress_dir_rearranged = None
 
@@ -34,23 +38,25 @@ class IvusProcessor:
         self.current_dir = 'rest'
 
     def create_empty_df(self, directory, name):
-        """Create an empty DataFrame with these columns: position, lumen_area, lumen_area_ci_lower, 
+        """Create an empty DataFrame with these columns: position, lumen_area, lumen_area_ci_lower,
         lumen_area_ci_upper, elliptic_ratio, elliptic_ratio_ci_lower, elliptic_ratio_ci_upper, phase, distance"""
-        df = pd.DataFrame(columns=['position', 'lumen_area', 'lumen_area_ci_lower', 'lumen_area_ci_upper',
-                                      'elliptic_ratio', 'elliptic_ratio_ci_lower', 'elliptic_ratio_ci_upper',
-                                    'shortest_distance', 'shortest_ci_lower', 'shortest_ci_upper', 'phase'])
+        df = pd.DataFrame(
+            columns=[
+                'position',
+                'lumen_area',
+                'lumen_area_ci_lower',
+                'lumen_area_ci_upper',
+                'elliptic_ratio',
+                'elliptic_ratio_ci_lower',
+                'elliptic_ratio_ci_upper',
+                'shortest_distance',
+                'shortest_ci_lower',
+                'shortest_ci_upper',
+                'phase',
+            ]
+        )
 
         df.to_csv(os.path.join(os.path.dirname(directory), name), index=False)
-
-    def patient_id_from_dir(self, directory):
-        """Extract the patient ID from the directory name. by keeping only NARCO_XX"""
-        # remove \rest or \stress from the directory
-        directory = directory.replace("\\rest", "").replace("\\stress", "")
-        # try splitting director by / but if the len of string is > 9, split by \ instead
-        if len(directory.split("/")) > 9:
-            return os.path.split(directory)[-1]
-        else:
-            return directory.split("/")[-1]
 
     def get_order_and_estimate(self):
         try:
@@ -62,7 +68,7 @@ class IvusProcessor:
             matching_row = order_list[order_list['narco_id'] == self.name_dir]
             if matching_row.empty:
                 raise ValueError(f"No matching narco_id found for {self.name_dir}.")
-            
+
             self.phase_order = matching_row['phase_order'].values[0]
             self.global_order = matching_row['global_order'].values[0]
             self.estimate_distance_true = matching_row['estimate_distance_true'].values[0]
@@ -79,8 +85,10 @@ class IvusProcessor:
             report_file = [f for f in os.listdir(self.rest_dir) if f.endswith('_report.txt')][0]
         else:
             report_file = [f for f in os.listdir(self.stress_dir) if f.endswith('_report.txt')][0]
-        
-        df = pd.read_csv(os.path.join(self.rest_dir if self.current_dir == 'rest' else self.stress_dir, report_file), sep='\t')
+
+        df = pd.read_csv(
+            os.path.join(self.rest_dir if self.current_dir == 'rest' else self.stress_dir, report_file), sep='\t'
+        )
 
         if df is None or df.empty or pd.isna(df['pullback_speed'].unique()[0]):
             raise ValueError("The dataframe is empty or not initialized. Please provide a valid dataframe.")
@@ -101,7 +109,7 @@ class IvusProcessor:
         time_intervals = frame_diffs / self.FRAME_RATE  # Time interval in seconds
 
         # Calculate distance for each interval based on pullback speed (mm/s)
-        distances = time_intervals * self.PULLBACK_SPEED 
+        distances = time_intervals * self.PULLBACK_SPEED
 
         # Generate cumulative distance, starting at 0
         cumulative_distance = np.cumsum(np.insert(distances, 0, 0))
@@ -133,12 +141,12 @@ class IvusProcessor:
             df_sys['distance'] = (df_sys['position'] - df_sys['position'].max()) * -1
 
         # if sum of first half of df_dia['frame'] is bigger than sum of last half of df_dia['frame'], ascending order otherwise descending same for df_sys
-        if df_dia['frame'].iloc[:len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2:].sum():
+        if df_dia['frame'].iloc[: len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2 :].sum():
             distance_dia = sorted(df_dia['distance'])
         else:
             distance_dia = sorted(df_dia['distance'], reverse=True)
 
-        if df_sys['frame'].iloc[:len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2:].sum():
+        if df_sys['frame'].iloc[: len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2 :].sum():
             distance_sys = sorted(df_sys['distance'])
         else:
             distance_sys = sorted(df_sys['distance'], reverse=True)
@@ -147,7 +155,6 @@ class IvusProcessor:
         df_sys['distance'] = distance_sys
 
         return pd.concat([df_dia, df_sys])
-
 
     def loess_fit(self, x, y, frac=0.3, ci=True, phase='D', global_fit=False):
         # store name of y
@@ -170,7 +177,9 @@ class IvusProcessor:
         boot_preds = []
 
         if ci:
-            for _ in tqdm.tqdm(range(n_boot), desc=f"Bootstrapping for {self.name_dir.split(os.sep)[-1]} variable {y_name}"):
+            for _ in tqdm.tqdm(
+                range(n_boot), desc=f"Bootstrapping for {self.name_dir.split(os.sep)[-1]} variable {y_name}"
+            ):
                 # Resample with replacement
                 indices = np.random.choice(len(x), len(x), replace=True)
                 x_boot, y_boot = x[indices], y[indices]
@@ -195,19 +204,21 @@ class IvusProcessor:
             ci_lower_new = np.interp(x_new, x_smooth, ci_lower)
             ci_upper_new = np.interp(x_new, x_smooth, ci_upper)
             # save output to a new dataframe in the same directory
-            df_out = pd.DataFrame({
-                'position': x_new, 
-                'lumen_area': np.nan, 
-                'lumen_area_ci_lower': np.nan, 
-                'lumen_area_ci_upper': np.nan,
-                'elliptic_ratio': np.nan,
-                'elliptic_ratio_ci_lower': np.nan,
-                'elliptic_ratio_ci_upper': np.nan,
-                'shortest_distance': np.nan,
-                'shortest_ci_lower': np.nan,
-                'shortest_ci_upper': np.nan,
-                'phase': phase
-            })
+            df_out = pd.DataFrame(
+                {
+                    'position': x_new,
+                    'lumen_area': np.nan,
+                    'lumen_area_ci_lower': np.nan,
+                    'lumen_area_ci_upper': np.nan,
+                    'elliptic_ratio': np.nan,
+                    'elliptic_ratio_ci_lower': np.nan,
+                    'elliptic_ratio_ci_upper': np.nan,
+                    'shortest_distance': np.nan,
+                    'shortest_ci_lower': np.nan,
+                    'shortest_ci_upper': np.nan,
+                    'phase': phase,
+                }
+            )
             if y_name == 'lumen_area':
                 df_out['lumen_area'] = y_new
                 df_out['lumen_area_ci_lower'] = ci_lower_new
@@ -228,16 +239,22 @@ class IvusProcessor:
                     df_out.to_csv(f, header=False, index=False)
 
             elif self.current_dir == 'stress' and not global_fit:
-                with open(os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress.csv'), 'a', newline='') as f:
+                with open(
+                    os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress.csv'), 'a', newline=''
+                ) as f:
                     df_out.to_csv(f, header=False, index=False)
             elif self.current_dir == 'rest' and global_fit:
-                with open(os.path.join(os.path.dirname(self.rest_dir), 'loess_data_rest_glob.csv'), 'a', newline='') as f:
+                with open(
+                    os.path.join(os.path.dirname(self.rest_dir), 'loess_data_rest_glob.csv'), 'a', newline=''
+                ) as f:
                     df_out.to_csv(f, header=False, index=False)
             elif self.current_dir == 'stress' and global_fit:
-                with open(os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress_glob.csv'), 'a', newline='') as f:
+                with open(
+                    os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress_glob.csv'), 'a', newline=''
+                ) as f:
                     df_out.to_csv(f, header=False, index=False)
             else:
-                logger.info("Current directory is not set to rest or stress")    
+                logger.info("Current directory is not set to rest or stress")
 
         return y_smooth, ci_lower, ci_upper
 
@@ -245,48 +262,94 @@ class IvusProcessor:
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
         if 'phase' not in df.columns:
             raise KeyError("The 'phase' column is missing from the DataFrame.")
-        
+
         # Ensure distance is sorted within each phase
-        fitted_results = df.groupby('phase').apply(
-            lambda group: pd.DataFrame({
-                'fitted_lumen_area': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['lumen_area'], phase=group['phase'].iloc[0])[0],
-                'area_ci_lower': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['lumen_area'], phase=group['phase'].iloc[0])[1],
-                'area_ci_upper': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['lumen_area'], phase=group['phase'].iloc[0])[2]
-            }, index=group.index)
-        ).reset_index(drop=True)
-        
+        fitted_results = (
+            df.groupby('phase')
+            .apply(
+                lambda group: pd.DataFrame(
+                    {
+                        'fitted_lumen_area': self.loess_fit(
+                            group.sort_values('distance')['distance'],
+                            group.sort_values('distance')['lumen_area'],
+                            phase=group['phase'].iloc[0],
+                        )[0],
+                        'area_ci_lower': self.loess_fit(
+                            group.sort_values('distance')['distance'],
+                            group.sort_values('distance')['lumen_area'],
+                            phase=group['phase'].iloc[0],
+                        )[1],
+                        'area_ci_upper': self.loess_fit(
+                            group.sort_values('distance')['distance'],
+                            group.sort_values('distance')['lumen_area'],
+                            phase=group['phase'].iloc[0],
+                        )[2],
+                    },
+                    index=group.index,
+                )
+            )
+            .reset_index(drop=True)
+        )
+
         df = df.reset_index(drop=True)
         df = pd.concat([df, fitted_results], axis=1)
-        
+
         # Ensure sorted and consistent distance for mean elliptic ratio
         df['mean_elliptic_ratio'] = df.groupby('distance')['elliptic_ratio'].transform('mean')
         df = df.sort_values('distance').reset_index(drop=True)  # Sort overall for consistency and reset index
-        fitted_elliptic_results = pd.DataFrame({
-            'fitted_elliptic_ratio': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[0],
-            'elliptic_ci_lower': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[1],
-            'elliptic_ci_upper': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[2]
-        }).reset_index(drop=True)
-        
-        df = pd.concat([df, fitted_elliptic_results], axis=1)
-        
-        # Apply similar fixes for shortest distance
-        fitted_shortest_results = df.groupby('phase').apply(
-            lambda group: pd.DataFrame({
-                'fitted_shortest_distance': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['shortest_distance'], phase=group['phase'].iloc[0])[0],
-                'shortest_ci_lower': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['shortest_distance'], phase=group['phase'].iloc[0])[1],
-                'shortest_ci_upper': self.loess_fit(group.sort_values('distance')['distance'], group.sort_values('distance')['shortest_distance'], phase=group['phase'].iloc[0])[2]
-            }, index=group.index)
+        fitted_elliptic_results = pd.DataFrame(
+            {
+                'fitted_elliptic_ratio': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[0],
+                'elliptic_ci_lower': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[1],
+                'elliptic_ci_upper': self.loess_fit(df['distance'], df['mean_elliptic_ratio'])[2],
+            }
         ).reset_index(drop=True)
-        
+
+        df = pd.concat([df, fitted_elliptic_results], axis=1)
+
+        # Apply similar fixes for shortest distance
+        fitted_shortest_results = (
+            df.groupby('phase')
+            .apply(
+                lambda group: pd.DataFrame(
+                    {
+                        'fitted_shortest_distance': self.loess_fit(
+                            group.sort_values('distance')['distance'],
+                            group.sort_values('distance')['shortest_distance'],
+                            phase=group['phase'].iloc[0],
+                        )[0],
+                        'shortest_ci_lower': self.loess_fit(
+                            group.sort_values('distance')['distance'],
+                            group.sort_values('distance')['shortest_distance'],
+                            phase=group['phase'].iloc[0],
+                        )[1],
+                        'shortest_ci_upper': self.loess_fit(
+                            group.sort_values('distance')['distance'],
+                            group.sort_values('distance')['shortest_distance'],
+                            phase=group['phase'].iloc[0],
+                        )[2],
+                    },
+                    index=group.index,
+                )
+            )
+            .reset_index(drop=True)
+        )
+
         df = pd.concat([df, fitted_shortest_results], axis=1)
         return df.sort_values(by='distance').reset_index(drop=True)  # Final sort and reset index
 
     def fit_curve_global(self, df):
         """Fits a polynomial curve to the lumen area and elliptic ratio."""
-        df['fitted_lumen_area_glob'], df['area_ci_lower_glob'], df['area_ci_upper_glob'] = self.loess_fit(df['distance'], df['lumen_area'], phase=df['phase'].iloc[0], global_fit=True)
+        df['fitted_lumen_area_glob'], df['area_ci_lower_glob'], df['area_ci_upper_glob'] = self.loess_fit(
+            df['distance'], df['lumen_area'], phase=df['phase'].iloc[0], global_fit=True
+        )
         df['mean_elliptic_ratio_glob'] = df['elliptic_ratio'].mean()
-        df['fitted_elliptic_ratio_glob'], df['elliptic_ci_lower_glob'], df['elliptic_ci_upper_glob'] = self.loess_fit(df['distance'], df['mean_elliptic_ratio'], phase=df['phase'].iloc[0], global_fit=True)
-        df['fitted_shortest_distance_glob'], df['shortest_ci_lower_glob'], df['shortest_ci_upper_glob'] = self.loess_fit(df['distance'], df['shortest_distance'], phase=df['phase'].iloc[0], global_fit=True)
+        df['fitted_elliptic_ratio_glob'], df['elliptic_ci_lower_glob'], df['elliptic_ci_upper_glob'] = self.loess_fit(
+            df['distance'], df['mean_elliptic_ratio'], phase=df['phase'].iloc[0], global_fit=True
+        )
+        df['fitted_shortest_distance_glob'], df['shortest_ci_lower_glob'], df['shortest_ci_upper_glob'] = (
+            self.loess_fit(df['distance'], df['shortest_distance'], phase=df['phase'].iloc[0], global_fit=True)
+        )
         df = df.sort_values(by='distance')
         return df
 
@@ -426,8 +489,12 @@ class IvusProcessor:
         # Plot global data for rest
         plt.plot(df_rest['distance'], df_rest[fitted], label='Rest')
         plt.plot(df_dobu['distance'], df_dobu[fitted], label='Dobutamine')
-        plt.fill_between(df_rest['distance'], df_rest['area_ci_lower_glob'], df_rest['area_ci_upper_glob'], color='blue', alpha=0.2)
-        plt.fill_between(df_dobu['distance'], df_dobu['area_ci_lower_glob'], df_dobu['area_ci_upper_glob'], color='blue', alpha=0.2)
+        plt.fill_between(
+            df_rest['distance'], df_rest['area_ci_lower_glob'], df_rest['area_ci_upper_glob'], color='blue', alpha=0.2
+        )
+        plt.fill_between(
+            df_dobu['distance'], df_dobu['area_ci_lower_glob'], df_dobu['area_ci_upper_glob'], color='blue', alpha=0.2
+        )
         plt.scatter(df_rest['distance'], df_rest[norm], alpha=0.3)
         plt.scatter(df_dobu['distance'], df_dobu[norm], alpha=0.3)
         plt.title('Global Lumen Area vs Distance')
@@ -452,7 +519,7 @@ class IvusProcessor:
         df = self.fit_curves_sys_dia(df)
         df = self.fit_curve_global(df)
         return df
-    
+
     def run(self):
         """Main method to process data and generate plots."""
         print("Starting run method")
@@ -464,14 +531,18 @@ class IvusProcessor:
         self.current_dir = 'stress'
         logger.info(f"Processing stress directory {self.name_dir}")
         stress_df = self.process_directory(self.stress_dir)
-        
+
         # make a check, if first half of fitted_lumen_area is bigger than second half, reverse all columns beginning with fitted while keeping other columns
-        if (rest_df['lumen_area'] - rest_df['fitted_lumen_area']).abs().sum() > (rest_df['lumen_area'] - rest_df['fitted_lumen_area'][::-1]).abs().sum():
+        if (rest_df['lumen_area'] - rest_df['fitted_lumen_area']).abs().sum() > (
+            rest_df['lumen_area'] - rest_df['fitted_lumen_area'][::-1]
+        ).abs().sum():
             for col in rest_df.columns:
                 if col.startswith('fitted'):
                     rest_df[col] = rest_df[col].values[::-1]
-        
-        if (stress_df['lumen_area'] - stress_df['fitted_lumen_area']).abs().sum() > (stress_df['lumen_area'] - stress_df['fitted_lumen_area'][::-1]).abs().sum():
+
+        if (stress_df['lumen_area'] - stress_df['fitted_lumen_area']).abs().sum() > (
+            stress_df['lumen_area'] - stress_df['fitted_lumen_area'][::-1]
+        ).abs().sum():
             for col in stress_df.columns:
                 if col.startswith('fitted'):
                     stress_df[col] = stress_df[col].values[::-1]
@@ -486,8 +557,11 @@ class IvusProcessor:
         rest_df.to_csv(os.path.join(os.path.dirname(self.rest_dir), 'output_rest.csv'))
         stress_df.to_csv(os.path.join(os.path.dirname(self.stress_dir), 'output_stress.csv'))
 
+
 # Usage
-processor = IvusProcessor(
-    rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest",
-    stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress")
-processor.run()
+if __name__ == "__main__":
+    processor = IvusProcessor(
+        rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest",
+        stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress",
+    )
+    processor.run()

@@ -9,6 +9,7 @@ from omegaconf import DictConfig
 
 from .ivus_processing import IvusProcessor
 from .ivus_reshuffling import Reshuffeling
+from .ivus_dataprep import IVUSDataPrep
 
 @hydra.main(config_path="C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/", config_name="config")
 def ivus_main(cfg: DictConfig):
@@ -42,7 +43,8 @@ def ivus_main(cfg: DictConfig):
             processing.run()
 
         if cfg.ivus_main.data_prep:
-            pass
+            prepping = IVUSDataPrep(rest_dir, cfg.main.output_dir_ivus)
+            prepping()
 
 if __name__ == "__main__":
     ivus_main()

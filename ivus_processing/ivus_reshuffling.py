@@ -37,6 +37,16 @@ class Reshuffeling:
         if self.plot_true:
             self.sorted_diastolic_frames = self.plot_images(self.sorted_diastolic_frames, title='Diastolic Frames')
             self.sorted_systolic_frames = self.plot_images(self.sorted_systolic_frames, title='Systolic Frames')
+            # Update sorted frames and info based on rearranged indices
+            columns_to_rearrange = [col for col in self.diastolic_info.columns if col != 'position']
+            self.sorted_diastolic_info[columns_to_rearrange] = self.diastolic_info.iloc[self.sorted_diastolic_indices][
+                columns_to_rearrange
+            ].values
+            self.sorted_systolic_info[columns_to_rearrange] = self.systolic_info.iloc[self.sorted_systolic_indices][
+                columns_to_rearrange
+            ].values
+            self.sorted_diastolic_info = self.sorted_diastolic_info[::-1].reset_index(drop=True)
+            self.sorted_systolic_info = self.sorted_systolic_info[::-1].reset_index(drop=True)
             self.plot_comparison(self.diastolic_info, self.sorted_diastolic_info)
             self.plot_comparison(self.systolic_info, self.sorted_systolic_info)
             self.plot_correlation_matrix(self.diastolic_correlation_matrix, title='diastolic_correlation_matrix')
@@ -200,8 +210,11 @@ class Reshuffeling:
         and a checkbox to indicate when plotting is finished.
         """
         sorted_frames = list(frames)  # Convert to a list for easy manipulation
-        rearranged_indices = list(range(len(frames)))  # Initialize rearranged indices
         finished = [False]  # Use a mutable object to track completion state
+        if title == 'Diastolic Frames':
+            rearranged_indices = self.sorted_diastolic_indices  # Initialize rearranged indices
+        else:
+            rearranged_indices = self.sorted_systolic_indices
 
         # Frame indices for reordering
         frame_to_move = [0]
@@ -275,6 +288,7 @@ class Reshuffeling:
                 # Update rearranged_indices accordingly
                 index = rearranged_indices.pop(frame_to_move[0])
                 rearranged_indices.insert(end_position[0], index)
+                print(f'rearranged_indices after move: {rearranged_indices}')
             else:
                 print("Invalid indices. No changes made.")
 
@@ -315,7 +329,7 @@ class Reshuffeling:
         sorted_diastolic_info = sorted_diastolic_info.reset_index(drop=True)
         sorted_systolic_info = sorted_systolic_info.reset_index(drop=True)
 
-        combined_info = pd.concat([sorted_diastolic_info, sorted_systolic_info], axis=0).reset_index(drop=True)
+        combined_info = pd.concat([sorted_diastolic_info, sorted_systolic_info], axis=0)
         # Save the rearranged information to a new file
         if self.plot_true:
             combined_info.to_csv(os.path.join(self.path, 'combined_sorted_manual.csv'), index=False)
@@ -328,6 +342,6 @@ class Reshuffeling:
 if __name__ == '__main__':
     # reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Rest")
     reshuffeling = Reshuffeling(
-        r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_24\stress", plot=True
+        r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_122\rest", plot=True
     )
     diastolic_frames, systolic_frames = reshuffeling()

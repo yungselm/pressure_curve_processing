@@ -1,5 +1,6 @@
 import sys
 import os
+from argparse import ArgumentParser
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -58,10 +59,10 @@ class IvusProcessor:
 
         df.to_csv(os.path.join(os.path.dirname(directory), name), index=False)
 
-    def get_order_and_estimate(self):
+    def get_order_and_estimate(self, ):
         try:
             order_list = pd.read_excel(
-                r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\00_polynomial_fit_all.xlsx"
+                "../data/00_polynomial_fit_all.xlsx"
             )
             if order_list.empty:
                 raise ValueError("Excel file is empty or does not have the required data.")
@@ -127,7 +128,7 @@ class IvusProcessor:
             print(e)
             print("Using default values for pullback speed, start frame and frame rate.")
 
-        df = df[df['phase'] != '-'].copy()
+        # df = df[df['phase'] != '-'].copy()
         # df = df[df['frame'] >= self.START_FRAME].copy()
 
         df_dia = df[df['phase'] == 'D'].copy()
@@ -137,22 +138,27 @@ class IvusProcessor:
             df_dia['distance'] = self.estimate_distance(df_dia)
             df_sys['distance'] = self.estimate_distance(df_sys)
         else:
-            df_dia['distance'] = (df_dia['position'] - df_dia['position'].max()) * -1
-            df_sys['distance'] = (df_sys['position'] - df_sys['position'].max()) * -1
+            df_dia['distance'] = df_dia['position'].max() - df_dia['position']
+            df_sys['distance'] = df_sys['position'].max() - df_sys['position']
+
+        df_dia['distance'] = df_dia['distance'].values[::-1]
+        df_sys['distance'] = df_sys['distance'].values[::-1]
 
         # if sum of first half of df_dia['frame'] is bigger than sum of last half of df_dia['frame'], ascending order otherwise descending same for df_sys
-        if df_dia['frame'].iloc[: len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2 :].sum():
-            distance_dia = sorted(df_dia['distance'])
-        else:
-            distance_dia = sorted(df_dia['distance'], reverse=True)
+        # if df_dia['frame'].iloc[: len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2 :].sum():
+        #     distance_dia = sorted(df_dia['distance'])
+        # else:
+        #     distance_dia = sorted(df_dia['distance'], reverse=True)
 
-        if df_sys['frame'].iloc[: len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2 :].sum():
-            distance_sys = sorted(df_sys['distance'])
-        else:
-            distance_sys = sorted(df_sys['distance'], reverse=True)
-
-        df_dia['distance'] = distance_dia
-        df_sys['distance'] = distance_sys
+        # if df_sys['frame'].iloc[: len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2 :].sum():
+        #     distance_sys = sorted(df_sys['distance'])
+        # else:
+        #     distance_sys = sorted(df_sys['distance'], reverse=True)
+        # columns_to_rearrange = [col for col in df_dia.columns if col != 'lumen_area']
+        df_dia = df_dia[::-1]
+        df_sys = df_sys[::-1]
+        # df_dia['distance'] = distance_dia
+        # df_sys['distance'] = distance_sys
 
         return pd.concat([df_dia, df_sys])
 
@@ -173,12 +179,12 @@ class IvusProcessor:
         x_smooth, y_smooth = smoothed[:, 0], smoothed[:, 1]
 
         # Bootstrapping for Confidence Intervals
-        n_boot = 1000  # Number of bootstrap samples
+        n_boot = 100  # Number of bootstrap samples
         boot_preds = []
 
         if ci:
             for _ in tqdm.tqdm(
-                range(n_boot), desc=f"Bootstrapping for {self.name_dir.split(os.sep)[-1]} variable {y_name}"
+                    range(n_boot), desc=f"Bootstrapping for {self.name_dir.split(os.sep)[-1]} variable {y_name}"
             ):
                 # Resample with replacement
                 indices = np.random.choice(len(x), len(x), replace=True)
@@ -240,17 +246,17 @@ class IvusProcessor:
 
             elif self.current_dir == 'stress' and not global_fit:
                 with open(
-                    os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress.csv'), 'a', newline=''
+                        os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress.csv'), 'a', newline=''
                 ) as f:
                     df_out.to_csv(f, header=False, index=False)
             elif self.current_dir == 'rest' and global_fit:
                 with open(
-                    os.path.join(os.path.dirname(self.rest_dir), 'loess_data_rest_glob.csv'), 'a', newline=''
+                        os.path.join(os.path.dirname(self.rest_dir), 'loess_data_rest_glob.csv'), 'a', newline=''
                 ) as f:
                     df_out.to_csv(f, header=False, index=False)
             elif self.current_dir == 'stress' and global_fit:
                 with open(
-                    os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress_glob.csv'), 'a', newline=''
+                        os.path.join(os.path.dirname(self.stress_dir), 'loess_data_stress_glob.csv'), 'a', newline=''
                 ) as f:
                     df_out.to_csv(f, header=False, index=False)
             else:
@@ -270,18 +276,18 @@ class IvusProcessor:
                 lambda group: pd.DataFrame(
                     {
                         'fitted_lumen_area': self.loess_fit(
-                            group.sort_values('distance')['distance'],
-                            group.sort_values('distance')['lumen_area'],
+                            group['distance'],
+                            group['lumen_area'],
                             phase=group['phase'].iloc[0],
                         )[0],
                         'area_ci_lower': self.loess_fit(
-                            group.sort_values('distance')['distance'],
-                            group.sort_values('distance')['lumen_area'],
+                            group['distance'],
+                            group['lumen_area'],
                             phase=group['phase'].iloc[0],
                         )[1],
                         'area_ci_upper': self.loess_fit(
-                            group.sort_values('distance')['distance'],
-                            group.sort_values('distance')['lumen_area'],
+                            group['distance'],
+                            group['lumen_area'],
                             phase=group['phase'].iloc[0],
                         )[2],
                     },
@@ -359,7 +365,7 @@ class IvusProcessor:
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-    def plot_data(self, df_rest, df_dobu, variable='lumen_area'):
+    def plot_data(self, df_rest, df_stress, variable='lumen_area'):
         """Plot systole and diastole data for rest and stress."""
         # Determine the common x-axis limits based on the dataframe with more x-values
         if variable == 'lumen_area':
@@ -375,14 +381,14 @@ class IvusProcessor:
         else:
             raise ValueError(f"Variable {variable} not supported.")
 
-        x_min = min(df_rest['distance'].min(), df_dobu['distance'].min())
-        x_max = max(df_rest['distance'].max(), df_dobu['distance'].max())
+        x_min = min([df_rest['distance'].min(), df_stress['distance'].min()])
+        x_max = max([df_rest['distance'].max(), df_stress['distance'].max()])
 
         # Determine the common y-axis limits based on the dataframe with more y-values
-        y_min_lumen = min(df_rest[norm].min(), df_dobu[norm].min())
-        y_max_lumen = max(df_rest[norm].max(), df_dobu[norm].max())
-        y_min_elliptic = min(df_rest['mean_elliptic_ratio'].min(), df_dobu['mean_elliptic_ratio'].min())
-        y_max_elliptic = max(df_rest['mean_elliptic_ratio'].max(), df_dobu['mean_elliptic_ratio'].max())
+        y_min_lumen = min(df_rest[norm].min(), df_stress[norm].min())
+        y_max_lumen = max(df_rest[norm].max(), df_stress[norm].max())
+        y_min_elliptic = min(df_rest['mean_elliptic_ratio'].min(), df_stress['mean_elliptic_ratio'].min())
+        y_max_elliptic = max(df_rest['mean_elliptic_ratio'].max(), df_stress['mean_elliptic_ratio'].max())
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), gridspec_kw={'hspace': 0.4})
 
@@ -426,16 +432,16 @@ class IvusProcessor:
         ax1_frames.set_xlabel('Frames')
         ax1.axhline(y=1.5, color='r', linestyle='--')
 
-        # Plot lumen area for dobutamine
-        for phase, group in df_dobu.groupby('phase'):
+        # Plot lumen area for stress
+        for phase, group in df_stress.groupby('phase'):
             ax2.plot(group['distance'], group[fitted], label=f'Dobutamine - {phase}')
             ax2.scatter(group['distance'], group[norm], alpha=0.3)
             ax2.fill_between(group['distance'], group['area_ci_lower'], group['area_ci_upper'], color='blue', alpha=0.2)
 
         # Highlight the smallest lumen area for dobutamine
-        min_lumen_area_dobu = df_dobu[norm].min()
-        min_lumen_area_frame_dobu = df_dobu.loc[df_dobu[norm].idxmin(), 'frame']
-        min_lumen_area_distance_dobu = df_dobu.loc[df_dobu[norm].idxmin(), 'distance']
+        min_lumen_area_dobu = df_stress[norm].min()
+        min_lumen_area_frame_dobu = df_stress.loc[df_stress[norm].idxmin(), 'frame']
+        min_lumen_area_distance_dobu = df_stress.loc[df_stress[norm].idxmin(), 'distance']
 
         ax2.scatter(min_lumen_area_distance_dobu, min_lumen_area_dobu, color='#0055ff', zorder=5)
         ax2.text(
@@ -447,8 +453,8 @@ class IvusProcessor:
 
         # Overlay mean elliptic ratio for dobutamine
         ax2.plot(
-            df_dobu['distance'],
-            df_dobu['fitted_elliptic_ratio'],
+            df_stress['distance'],
+            df_stress['fitted_elliptic_ratio'],
             color='darkblue',
             label='Mean Elliptic Ratio - Dobutamine',
         )
@@ -464,8 +470,8 @@ class IvusProcessor:
         # Add a second x-axis for frames
         ax2_frames = ax2.twiny()
         ax2_frames.set_xlim(ax2.get_xlim())
-        ax2_frames.set_xticks(df_dobu['distance'][::5])
-        ax2_frames.set_xticklabels(df_dobu['frame'][::5])
+        ax2_frames.set_xticks(df_stress['distance'][::5])
+        ax2_frames.set_xticklabels(df_stress['frame'][::5])
         ax2_frames.set_xlabel('Frames')
         ax2.axhline(y=1.5, color='r', linestyle='--')
 
@@ -532,24 +538,24 @@ class IvusProcessor:
         logger.info(f"Processing stress directory {self.name_dir}")
         stress_df = self.process_directory(self.stress_dir)
 
-        # make a check, if first half of fitted_lumen_area is bigger than second half, reverse all columns beginning with fitted while keeping other columns
-        if (rest_df['lumen_area'] - rest_df['fitted_lumen_area']).abs().sum() > (
-            rest_df['lumen_area'] - rest_df['fitted_lumen_area'][::-1]
-        ).abs().sum():
-            for col in rest_df.columns:
-                if col.startswith('fitted'):
-                    rest_df[col] = rest_df[col].values[::-1]
-
-        if (stress_df['lumen_area'] - stress_df['fitted_lumen_area']).abs().sum() > (
-            stress_df['lumen_area'] - stress_df['fitted_lumen_area'][::-1]
-        ).abs().sum():
-            for col in stress_df.columns:
-                if col.startswith('fitted'):
-                    stress_df[col] = stress_df[col].values[::-1]
+        # # make a check, if first half of fitted_lumen_area is bigger than second half, reverse all columns beginning with fitted while keeping other columns
+        # if (rest_df['lumen_area'] - rest_df['fitted_lumen_area']).abs().sum() > (
+        #         rest_df['lumen_area'] - rest_df['fitted_lumen_area'][::-1]
+        # ).abs().sum():
+        #     for col in rest_df.columns:
+        #         if col.startswith('fitted'):
+        #             rest_df[col] = rest_df[col].values[::-1]
+        #
+        # if (stress_df['lumen_area'] - stress_df['fitted_lumen_area']).abs().sum() > (
+        #         stress_df['lumen_area'] - stress_df['fitted_lumen_area'][::-1]
+        # ).abs().sum():
+        #     for col in stress_df.columns:
+        #         if col.startswith('fitted'):
+        #             stress_df[col] = stress_df[col].values[::-1]
 
         # reset indices
-        rest_df = rest_df.reset_index(drop=True)
-        stress_df = stress_df.reset_index(drop=True)
+        # rest_df = rest_df.reset_index(drop=True)
+        # stress_df = stress_df.reset_index(drop=True)
 
         self.plot_data(rest_df, stress_df, variable='lumen_area')
         self.plot_global(rest_df, stress_df, variable='lumen_area')
@@ -560,8 +566,12 @@ class IvusProcessor:
 
 # Usage
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("--rest_dir", default="../data/NARCO_122/rest")
+    parser.add_argument("--stress_dir", default="../data/NARCO_122/stress")
+    args = parser.parse_args()
     processor = IvusProcessor(
-        rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\rest",
-        stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\stress",
+        rest_dir=args.rest_dir,
+        stress_dir=args.stress_dir,
     )
     processor.run()

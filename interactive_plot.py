@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Qt5Agg')  # Set the backend to Qt5Agg
+# matplotlib.use('Qt5Agg')  # Set the backend to Qt5Agg
 import time
 
 import numpy as np
@@ -178,7 +178,7 @@ class InteractivePlotCleaning:
 
 
 if __name__ == "__main__":
-    file = "C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/NARCO_10_eval/narco_10_pressure_rest_1.csv"
+    file = "C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test/NARCO_260_eval/narco_260_pressure_ade.csv"
     sensitivity_cursor = 0.05
     df = pd.read_csv(file)
     interactive_plot = InteractivePlotCleaning(df, sensitivity_cursor)

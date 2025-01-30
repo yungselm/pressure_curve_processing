@@ -128,9 +128,6 @@ class IvusProcessor:
             print(e)
             print("Using default values for pullback speed, start frame and frame rate.")
 
-        # df = df[df['phase'] != '-'].copy()
-        # df = df[df['frame'] >= self.START_FRAME].copy()
-
         df_dia = df[df['phase'] == 'D'].copy()
         df_sys = df[df['phase'] == 'S'].copy()
 
@@ -143,22 +140,8 @@ class IvusProcessor:
 
         df_dia['distance'] = df_dia['distance'].values[::-1]
         df_sys['distance'] = df_sys['distance'].values[::-1]
-
-        # if sum of first half of df_dia['frame'] is bigger than sum of last half of df_dia['frame'], ascending order otherwise descending same for df_sys
-        # if df_dia['frame'].iloc[: len(df_dia) // 2].sum() > df_dia['frame'].iloc[len(df_dia) // 2 :].sum():
-        #     distance_dia = sorted(df_dia['distance'])
-        # else:
-        #     distance_dia = sorted(df_dia['distance'], reverse=True)
-
-        # if df_sys['frame'].iloc[: len(df_sys) // 2].sum() > df_sys['frame'].iloc[len(df_sys) // 2 :].sum():
-        #     distance_sys = sorted(df_sys['distance'])
-        # else:
-        #     distance_sys = sorted(df_sys['distance'], reverse=True)
-        # columns_to_rearrange = [col for col in df_dia.columns if col != 'lumen_area']
         df_dia = df_dia[::-1]
         df_sys = df_sys[::-1]
-        # df_dia['distance'] = distance_dia
-        # df_sys['distance'] = distance_sys
 
         return pd.concat([df_dia, df_sys])
 
@@ -538,25 +521,6 @@ class IvusProcessor:
         logger.info(f"Processing stress directory {self.name_dir}")
         stress_df = self.process_directory(self.stress_dir)
 
-        # # make a check, if first half of fitted_lumen_area is bigger than second half, reverse all columns beginning with fitted while keeping other columns
-        # if (rest_df['lumen_area'] - rest_df['fitted_lumen_area']).abs().sum() > (
-        #         rest_df['lumen_area'] - rest_df['fitted_lumen_area'][::-1]
-        # ).abs().sum():
-        #     for col in rest_df.columns:
-        #         if col.startswith('fitted'):
-        #             rest_df[col] = rest_df[col].values[::-1]
-        #
-        # if (stress_df['lumen_area'] - stress_df['fitted_lumen_area']).abs().sum() > (
-        #         stress_df['lumen_area'] - stress_df['fitted_lumen_area'][::-1]
-        # ).abs().sum():
-        #     for col in stress_df.columns:
-        #         if col.startswith('fitted'):
-        #             stress_df[col] = stress_df[col].values[::-1]
-
-        # reset indices
-        # rest_df = rest_df.reset_index(drop=True)
-        # stress_df = stress_df.reset_index(drop=True)
-
         self.plot_data(rest_df, stress_df, variable='lumen_area')
         self.plot_global(rest_df, stress_df, variable='lumen_area')
 
@@ -570,8 +534,12 @@ if __name__ == "__main__":
     parser.add_argument("--rest_dir", default="../data/NARCO_122/rest")
     parser.add_argument("--stress_dir", default="../data/NARCO_122/stress")
     args = parser.parse_args()
+    # processor = IvusProcessor(
+    #     rest_dir=args.rest_dir,
+    #     stress_dir=args.stress_dir,
+    # )
     processor = IvusProcessor(
-        rest_dir=args.rest_dir,
-        stress_dir=args.stress_dir,
+        rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_192\rest",
+        stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_192\stress",
     )
     processor.run()

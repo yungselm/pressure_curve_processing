@@ -12,5 +12,6 @@ from os.path import split
 #         return patient_id
 #     else:
 #         return None
+
 def patient_id_from_dir(directory: str):
     return split(split(directory)[0])[-1]

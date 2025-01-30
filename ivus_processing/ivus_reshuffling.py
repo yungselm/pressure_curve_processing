@@ -102,14 +102,6 @@ class Reshuffling:
 
         return info_dia, info_sys
 
-    # def crop_images(self, frames, x1, x2, y1, y2):
-    #     """Crop all images in a set of frames to the same size."""
-    #     # cropped_frames = np.zeros((frames.shape[0], x2 - x1, y2 - y1))
-    #     # for idx, frame in enumerate(frames):
-    #     #     cropped_frames[idx] = frame[x1:x2, y1:y2]
-    #     cropped_frames = frames[:, x1:x2, y1:y2]
-    #     return cropped_frames
-
     def rotate_image(self, image, angle):
         """Rotate an image by a specified angle."""
         center = tuple(np.array(image.shape[1::-1]) / 2)
@@ -285,13 +277,7 @@ class Reshuffling:
         """
         sorted_frames = list(frames)  # Convert to a list for easy manipulation
         finished = [False]  # Use a mutable object to track completion state
-        # if title == 'Diastolic Frames':
-        #     rearranged_indices = self.sorted_diastolic_indices  # Initialize rearranged indices
-        # elif title == "Systolic Frames":
-        #     rearranged_indices = self.sorted_systolic_indices
-        # else:
-        #     raise ValueError(f"title: {title} is not correct")
-        # Frame indices for reordering
+       
         rearranged_indices = list(range(len(sorted_frames)))
         frame_to_move = [0]
         end_position = [0]
@@ -314,15 +300,7 @@ class Reshuffling:
                 rearranged_indices.insert(target_index, index)
                 print(f'rearranged_indices after move: {rearranged_indices}')
             else:
-                print("Invalid indices. No changes made.")
-
-        # Update the class attribute with the final rearranged indices
-        # if title == 'Diastolic Frames':
-        #     self.sorted_diastolic_indices = rearranged_indices
-        # elif title == "Systolic Frames":
-        #     self.sorted_systolic_indices = rearranged_indices
-        # else:
-        #     raise ValueError("title is not correct")
+                print(f"Invalid indices: Frame {frame_to_move[0]} or Position {end_position[0]} out of range.")
 
         # Return final sorted frames
         print("Final frame order determined.")
@@ -338,21 +316,6 @@ class Reshuffling:
         plt.savefig(os.path.join(self.path, f'{title}.png'))
 
     def rearrange_info_and_save(self, name: str = "combined"):
-        # Rearrange self.diastolic_info based on the sorted_diastolic_indices
-        # sorted_diastolic_info = self.diastolic_info.copy()
-        # sorted_systolic_info = self.systolic_info.copy()
-        #
-        # # # Rearrange all columns except 'position'
-        # columns_to_rearrange = [col for col in self.diastolic_info.columns if col != 'position']
-        # self.sorted_diastolic_info[columns_to_rearrange] = self.diastolic_info[columns_to_rearrange].values[
-        #     self.sorted_diastolic_indices]
-        # self.sorted_systolic_info[columns_to_rearrange] = self.systolic_info[columns_to_rearrange].values[
-        #     self.sorted_systolic_indices]
-
-        # Set new index
-        # sorted_diastolic_info = sorted_diastolic_info.reset_index(drop=True)
-        # sorted_systolic_info = sorted_systolic_info.reset_index(drop=True)
-
         combined_info_sorted = pd.concat([self.sorted_diastolic_info, self.sorted_systolic_info], axis=0)
         combined_info_original = pd.concat([self.diastolic_info, self.systolic_info], axis=0)
         # Save the rearranged information to a new file
@@ -368,7 +331,12 @@ class Reshuffling:
 
 if __name__ == '__main__':
     # reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Rest")
+    # reshuffeling = Reshuffling(
+    #     "../data/NARCO_122/rest", plot=True
+    # )
     reshuffeling = Reshuffling(
-        "../data/NARCO_122/rest", plot=True
+        r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_4\stress", plot=True
     )
     diastolic_frames_, systolic_frames_ = reshuffeling()
+
+# ssd = np.sum(np.array(frame1) - np.array(frame2) ** 2) / (img.size)

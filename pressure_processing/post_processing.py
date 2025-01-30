@@ -39,9 +39,12 @@ class PostProcessing:
         file_name = os.path.basename(file_path).split('.')[0]
         output_dir = os.path.dirname(file_path)
 
-        # Generate plots and save them
-        self.plot_average_curve(data, file_name, output_dir)
-        self.plot_pdpa_iFR_midsystolic_over_time(data, file_name, output_dir)
+        try:
+            # Generate plots and save them
+            self.plot_average_curve(data, file_name, output_dir)
+            self.plot_pdpa_iFR_midsystolic_over_time(data, file_name, output_dir)
+        except Exception as e:
+            logger.error(f"Error processing file {file_path}: {e}")
 
         # Extract measurements and update results_df
         self.update_results_df(data, file_name)
@@ -194,16 +197,16 @@ class PostProcessing:
         df_copy = data.copy()
 
         # Get the mean of iFR, mid_systolic_ratio, and pd/pa
-        iFR_mean = df_copy['iFR'].mean()
-        mid_systolic_ratio_mean = df_copy['mid_systolic_ratio'].mean()
-        pdpa_mean = df_copy['pd/pa'].mean()
-        mean_systolic_pressure = df_copy[df_copy['peaks'] == 1]['p_aortic'].mean()
-        mean_diastolic_pressure = df_copy[df_copy['peaks'] == 2]['p_aortic'].mean()
-        diastolic_integral_aortic = df_copy['diastolic_integral_aortic'].mean()
-        diastolic_integral_distal = df_copy['diastolic_integral_distal'].mean()
+        iFR_mean = df_copy.get('iFR', pd.Series([np.nan])).mean()
+        mid_systolic_ratio_mean = df_copy.get('mid_systolic_ratio', pd.Series([np.nan])).mean()
+        pdpa_mean = df_copy.get('pd/pa', pd.Series([np.nan])).mean()
+        mean_systolic_pressure = df_copy[df_copy['peaks'] == 1].get('p_aortic', pd.Series([np.nan])).mean()
+        mean_diastolic_pressure = df_copy[df_copy['peaks'] == 2].get('p_aortic', pd.Series([np.nan])).mean()
+        diastolic_integral_aortic = df_copy.get('diastolic_integral_aortic', pd.Series([np.nan])).mean()
+        diastolic_integral_distal = df_copy.get('diastolic_integral_distal', pd.Series([np.nan])).mean()
         diastolic_integral_diff = diastolic_integral_aortic - diastolic_integral_distal
-        systolic_integral_aortic = df_copy['systolic_integral_aortic'].mean()
-        systolic_integral_distal = df_copy['systolic_integral_distal'].mean()
+        systolic_integral_aortic = df_copy.get('systolic_integral_aortic', pd.Series([np.nan])).mean()
+        systolic_integral_distal = df_copy.get('systolic_integral_distal', pd.Series([np.nan])).mean()
         systolic_integral_diff = systolic_integral_aortic - systolic_integral_distal
 
         # Get the start and end time of diastolic_ratio and aortic_ratio

@@ -1,5 +1,5 @@
 import matplotlib
-# matplotlib.use('Qt5Agg')  # Set the backend to Qt5Agg
+matplotlib.use('Qt5Agg')  # Set the backend to Qt5Agg
 import time
 
 import numpy as np
@@ -173,12 +173,12 @@ class InteractivePlotCleaning:
         """Autosave the DataFrame every self.time_autosave seconds."""
         while not self.autosave_event.is_set():
             self.update_df()  # Update the DataFrame with the latest peak positions
-            self.df.to_csv("C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/NARCO_10_eval/narco_10_pressure_rest_1_autosave.csv", index=False)
+            self.df.to_csv("D:/00_coding/pressure_curve_processing/input/autosave.csv", index=False)
             self.autosave_event.wait(self.time_autosave)
 
 
 if __name__ == "__main__":
-    file = "C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/test/NARCO_260_eval/narco_260_pressure_ade.csv"
+    file = "D:/00_coding/pressure_curve_processing/input/NARCO_180_eval/narco_180_pressure_ade.csv"
     sensitivity_cursor = 0.05
     df = pd.read_csv(file)
     interactive_plot = InteractivePlotCleaning(df, sensitivity_cursor)

@@ -14,14 +14,39 @@ class Reshuffling:
         self.path = path
         self.diastolic_frames, self.systolic_frames = self.load_frames(path)
         self.diastolic_info, self.systolic_info = self.read_info(path)
+        self.dia_contours, self.dia_refpts = self.load_contours('diastolic')
+        print("self dia_contours", self.dia_contours[0])
+        self.sys_contours, self.sys_refpts = self.load_contours('systolic')
         self.sorted_diastolic_indices = None
         self.sorted_systolic_indices = None
         self.plot_true = plot
 
     def __call__(self):
-        x1, x2, y1, y2 = 50, 512, 25, 487
-        self.diastolic_frames = self.diastolic_frames[:, x1:x2, y1:y2]
-        self.systolic_frames = self.systolic_frames[:, x1:x2, y1:y2]
+        x_min, x_max = 50, 512
+        y_min, y_max = 25, 487 # cropping images to get rid of frame logo and remove unnecessary info
+        self.diastolic_frames = self.diastolic_frames[:, y_min:y_max, x_min:x_max]
+        self.systolic_frames = self.systolic_frames[:, y_min:y_max, x_min:x_max]
+        def _shift(cont_dict):
+            offset = np.array([x_min, y_min], dtype=float)
+            return { idx: pts - offset for idx, pts in cont_dict.items() }
+        self.dia_contours = _shift(self.dia_contours)
+        self.sys_contours = _shift(self.sys_contours)
+        self.sys_contours = _shift(self.sys_contours)
+        self.sys_refpts   = _shift(self.sys_refpts)
+        # embed contours and ref point on diastolic_frames
+        self.diastolic_frames = self.embed_contours(
+            self.diastolic_frames,
+            self.dia_contours,
+            color=(255, 255, 0),  # yellow in RGB
+            thickness=3           # increase “intensity” by drawing a fatter line
+        )
+        self.systolic_frames = self.embed_contours(
+            self.systolic_frames,
+            self.sys_contours,
+            color=(255, 255, 0),
+            thickness=3
+        )
+
         self.refresh_plot(self.diastolic_frames, "diastole",
                           save=os.path.join(self.path, "pre_sorted_diastolic_frames.png"))
         self.refresh_plot(self.systolic_frames, "systole",
@@ -66,6 +91,113 @@ class Reshuffling:
             self.rearrange_info_and_save()
 
         return self.sorted_diastolic_frames, self.sorted_systolic_frames
+
+    def embed_contours(
+        self,
+        frames: np.ndarray,
+        contours: dict[int, np.ndarray],
+        color: tuple[int, int, int] = (255, 255, 0),
+        thickness: int = 2
+    ) -> np.ndarray:
+        """
+        Burn each contour into its frame as a colored polyline:
+          - frames: NxHxW uint8 (grayscale) array
+          - contours: dict mapping frame idx -> (Mx2) array of [x,y] points
+          - color: (R, G, B), e.g. yellow = (255,255,0)
+          - thickness: line thickness in pixels
+        Returns NxHxWx3 uint8 array.
+        """
+        N, H, W = frames.shape
+        # convert to color
+        frames_color = np.stack([frames]*3, axis=-1)
+
+        for idx, pts in contours.items():
+            # round to ints
+            xy = np.round(pts).astype(int)
+            x, y = xy[:, 0], xy[:, 1]
+            # flip vertically
+            y = H - 1 - y
+            # clamp
+            x = np.clip(x, 0, W - 1)
+            y = np.clip(y, 0, H - 1)
+
+            # reshape for cv2.polylines: (M,1,2) in (x,y) order
+            poly = np.stack([x, y], axis=1).reshape(-1, 1, 2)
+            # draw closed contour
+            cv2.polylines(
+                frames_color[idx],
+                [poly],
+                isClosed=True,
+                color=color,
+                thickness=thickness,
+                lineType=cv2.LINE_AA
+            )
+
+        return frames_color
+
+    def load_contours(self, phase):
+        """
+        Given phase='diastolic' or 'systolic', looks for a subfolder
+        "<phase>_csv_files" containing:
+          - {phase}_contours.csv
+          - {phase}_reference_points.csv
+        Returns two dicts mapping frame_index -> ndarray of shape (N,2)
+        """
+        # 1) locate the *_csv_files folder
+        csv_dirs = [
+            d for d in os.listdir(self.path)
+            if d.endswith("_csv_files") and os.path.isdir(os.path.join(self.path, d))
+        ]
+        if not csv_dirs:
+            raise FileNotFoundError(f"No '*_csv_files' folder found under {self.path}")
+        # if there are multiple, you could pick the one containing phase in its name
+        csv_dir = None
+        for d in csv_dirs:
+            if phase in d:
+                csv_dir = d
+                break
+        if csv_dir is None:
+            # fallback to the first one
+            csv_dir = csv_dirs[0]
+
+        full_csv_dir = os.path.join(self.path, csv_dir)
+        contour_file = os.path.join(full_csv_dir, f"{phase}_contours.csv")
+        refpts_file  = os.path.join(full_csv_dir, f"{phase}_reference_points.csv")
+
+        def _read(fname):
+            # Force a 2D array even if there's only one row
+            raw = np.loadtxt(fname, delimiter='\t')
+            if raw.ndim == 0:
+                # single value → no valid rows
+                return {}
+            if raw.ndim == 1:
+                # exactly one row: turn shape (4,) → (1,4)
+                raw = raw[None, :]
+
+            mm_to_px = 1.0 / 0.01755671203136
+            out: dict[int, list[list[float]]] = {}
+            for idx, x_mm, y_mm, _z in raw:
+                i = int(idx)
+                x_px, y_px = x_mm * mm_to_px, y_mm * mm_to_px
+                out.setdefault(i, []).append([x_px, y_px])
+
+            # convert lists → arrays
+            return {k: np.array(v) for k, v in out.items()}
+
+        contours = _read(contour_file)
+        # Map original indices to new consecutive indices 0..N-1
+        old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted(contours.keys()))}
+        # Remap contours to new indices
+        contours = {old_to_new[k]: v for k, v in contours.items()}
+
+        ref_points = _read(refpts_file)
+        # Remap ref_points to new indices, only if the index exists in contours
+        ref_points = {old_to_new[k]: v for k, v in ref_points.items() if k in old_to_new}
+        print("load contours: {}", contours[0])
+        print(f"[load_contours:{phase}]  contours.keys() = {list(contours.keys())[:10]}… (total {len(contours)})")
+        print(f"[load_contours:{phase}]  refpts.keys()   = {list(ref_points.keys())[:10]}… (total {len(ref_points)})")
+
+        return contours, ref_points
 
     @staticmethod
     def load_frames(path):

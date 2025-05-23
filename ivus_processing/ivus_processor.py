@@ -539,7 +539,7 @@ if __name__ == "__main__":
     #     stress_dir=args.stress_dir,
     # )
     processor = IvusProcessor(
-        rest_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_192\rest",
-        stress_dir=r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_192\stress",
+        rest_dir=r"D:\00_coding\pressure_curve_processing\ivus\NARCO_210\rest",
+        stress_dir=r"D:\00_coding\pressure_curve_processing\ivus\NARCO_210\stress",
     )
     processor.run()

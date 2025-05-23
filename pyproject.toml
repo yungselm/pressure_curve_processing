@@ -3,6 +3,7 @@ name = "pressure_curve_processing"
 version = "0.1.0"
 description = ""
 authors = ["yungselm"]
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.9"

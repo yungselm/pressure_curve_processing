@@ -335,7 +335,7 @@ if __name__ == '__main__':
     #     "../data/NARCO_122/rest", plot=True
     # )
     reshuffeling = Reshuffling(
-        r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_4\stress", plot=True
+        r"D:\00_coding\pressure_curve_processing\ivus\NARCO_119\stress", plot=True
     )
     diastolic_frames_, systolic_frames_ = reshuffeling()
 

@@ -25,50 +25,17 @@ class IVUSDataPrep:
         self.prep_data('shortest_distance')
         self.save_data()
 
-    def patient_id_from_dir(directory):
+    def patient_id_from_dir(self, directory):  # Added self as first parameter
         """Extract the patient ID from the directory name. by keeping only NARCO_XX"""
-        # remove \rest or \stress from the directory
+        # Remove \rest or \stress from the directory
         directory = directory.replace("rest", "").replace("stress", "")
-        # split the directory by os separator and get the last part
+        # Split the directory by os separator and get the last part
         patient_id = os.path.basename(directory)
-        # check if the patient_id starts with 'NARCO_' and return it
+        # Check if the patient_id starts with 'NARCO_' and return it
         if patient_id.startswith("NARCO_"):
             return patient_id
         else:
             return None
-
-    # def prep_data(self, metric = 'lumen_area'):
-    #     rest = self.output_rest
-    #     stress = self.output_stress
-
-    #     # Ensure the columns are numeric
-    #     rest[metric] = pd.to_numeric(rest[metric], errors='coerce')
-    #     rest[f'fitted_{metric}'] = pd.to_numeric(rest[f'fitted_{metric}'], errors='coerce')
-    #     stress[metric] = pd.to_numeric(stress[metric], errors='coerce')
-    #     stress[f'fitted_{metric}'] = pd.to_numeric(stress[f'fitted_{metric}'], errors='coerce')
-
-    #     self.temp_df['patient_id'] = [self.name_dir]
-    #     self.temp_df[f'rest_phasic_compression_ostium_{metric}'] = rest[rest['phase'] ==  'S'][metric].iloc[0] - rest[rest['phase'] ==  'D'][metric].iloc[0]
-    #     self.temp_df[f'rest_phasic_compression_mla_{metric}'] = rest[rest['phase'] ==  'S'][metric].min() - rest[rest['phase'] ==  'D'][metric].min()
-    #     self.temp_df[f'rest_phasic_compression_ostium_fitted_{metric}'] = rest[rest['phase'] == 'S'][f'fitted_{metric}'].iloc[0] - rest[rest['phase'] == 'D'][f'fitted_{metric}'].iloc[0]
-    #     self.temp_df[f'rest_phasic_compression_mla_fitted_{metric}'] = rest[rest['phase'] ==  'S'][f'fitted_{metric}'].min() - rest[rest['phase'] ==  'D'][f'fitted_{metric}'].min()
-        
-    #     self.temp_df[f'stress_phasic_compression_ostium_{metric}'] = stress[stress['phase'] == 'S'][metric].iloc[0] - stress[stress['phase'] ==  'D'][metric].iloc[0]
-    #     self.temp_df[f'stress_phasic_compression_mla_{metric}'] = stress[stress['phase'] == 'S'][metric].min() - stress[stress['phase'] ==  'D'][metric].min()
-    #     self.temp_df[f'stress_phasic_compression_ostium_fitted_{metric}'] = stress[stress['phase'] == 'S'][f'fitted_{metric}'].iloc[0] - stress[stress['phase'] == 'D'][f'fitted_{metric}'].iloc[0]
-    #     self.temp_df[f'stress_phasic_compression_mla_fitted_{metric}'] = stress[stress['phase'] == 'S'][f'fitted_{metric}'].min() - stress[stress['phase'] ==  'D'][f'fitted_{metric}'].min()
-
-    #     # lateral compression
-    #     self.temp_df[f'global_lateral_compression_ostium_{metric}'] = stress[f'fitted_{metric}_glob'].iloc[0] - rest[f'fitted_{metric}_glob'].iloc[0]
-    #     self.temp_df[f'global_lateral_compression_mla_{metric}'] = stress[f'fitted_{metric}_glob'].min() - rest[f'fitted_{metric}_glob'].min()
-    #     self.temp_df[f'lateral_compression_ostium_diastole_{metric}'] = stress[stress['phase'] == 'D'][metric].iloc[0] - rest[rest['phase'] == 'D'][metric].iloc[0]
-    #     self.temp_df[f'lateral_compression_ostium_systole_{metric}'] = stress[stress['phase'] == 'S'][metric].iloc[0] - rest[rest['phase'] == 'S'][metric].iloc[0]
-    #     self.temp_df[f'lateral_compression_mla_diastole_{metric}'] = stress[stress['phase'] == 'D'][metric].min() - rest[rest['phase'] == 'D'][metric].min()
-    #     self.temp_df[f'lateral_compression_mla_systole_{metric}'] = stress[stress['phase'] == 'S'][metric].min() - rest[rest['phase'] == 'S'][metric].min()
-    #     self.temp_df[f'lateral_compression_ostium_diastole_fitted_{metric}'] = stress[stress['phase'] == 'D'][f'fitted_{metric}'].iloc[0] - rest[rest['phase'] == 'D'][f'fitted_{metric}'].iloc[0]
-    #     self.temp_df[f'lateral_compression_ostium_systole_fitted_{metric}'] = stress[stress['phase'] == 'S'][f'fitted_{metric}'].iloc[0] - rest[rest['phase'] == 'S'][f'fitted_{metric}'].iloc[0]
-    #     self.temp_df[f'lateral_compression_mla_diastole_fitted_{metric}'] = stress[stress['phase'] == 'D'][f'fitted_{metric}'].min() - rest[rest['phase'] == 'D'][f'fitted_{metric}'].min()
-    #     self.temp_df[f'lateral_compression_mla_systole_fitted_{metric}'] = stress[stress['phase'] == 'S'][f'fitted_{metric}'].min() - rest[rest['phase'] == 'S'][f'fitted_{metric}'].min()
 
     def prep_data(self, metric = 'lumen_area'):
         rest = self.output_rest
@@ -137,7 +104,7 @@ class IVUSDataPrep:
     
 
 if __name__ == "__main__":
-    rest_dir = r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\NARCO_234\."
-    output_path = r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\output"
+    rest_dir = r"D:\00_coding\pressure_curve_processing\ivus\NARCO_210\."
+    output_path = r"D:\00_coding\pressure_curve_processing\output"
     ivus_data_prep = IVUSDataPrep(rest_dir, output_path)
     ivus_data_prep()

@@ -7,11 +7,11 @@ import hydra
 from loguru import logger
 from omegaconf import DictConfig
 
-from .ivus_processing import IvusProcessor
+from .ivus_processor import IvusProcessor
 from .ivus_reshuffling import Reshuffling
 from .ivus_dataprep import IVUSDataPrep
 
-@hydra.main(config_path="C:/WorkingData/Documents/2_Coding/Python/pressure_curve_processing/", config_name="config")
+@hydra.main(config_path="D:/00_coding/pressure_curve_processing/", config_name="config")
 def ivus_main(cfg: DictConfig):
     """
     Main function to process IVUS data from a folder structure.

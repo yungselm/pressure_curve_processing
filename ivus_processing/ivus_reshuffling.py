@@ -15,7 +15,6 @@ class Reshuffling:
         self.diastolic_frames, self.systolic_frames = self.load_frames(path)
         self.diastolic_info, self.systolic_info = self.read_info(path)
         self.dia_contours, self.dia_refpts = self.load_contours('diastolic')
-        print("self dia_contours", self.dia_contours[0])
         self.sys_contours, self.sys_refpts = self.load_contours('systolic')
         self.sorted_diastolic_indices = None
         self.sorted_systolic_indices = None
@@ -193,9 +192,6 @@ class Reshuffling:
         ref_points = _read(refpts_file)
         # Remap ref_points to new indices, only if the index exists in contours
         ref_points = {old_to_new[k]: v for k, v in ref_points.items() if k in old_to_new}
-        print("load contours: {}", contours[0])
-        print(f"[load_contours:{phase}]  contours.keys() = {list(contours.keys())[:10]}… (total {len(contours)})")
-        print(f"[load_contours:{phase}]  refpts.keys()   = {list(ref_points.keys())[:10]}… (total {len(ref_points)})")
 
         return contours, ref_points
 

@@ -132,6 +132,10 @@ class PostProcessing:
         if len(diastolic_indices) < 2:
             raise ValueError("Not enough diastolic peaks to calculate intervals.")
 
+        # Calculate the mean timespan between consecutive diastolic peaks
+        diastolic_times = ifr_df.loc[diastolic_indices, 'time'].values
+        timespan = np.mean(np.diff(diastolic_times))
+
         # Initialize a list to store all rescaled intervals
         rescaled_curves = []
 
@@ -161,9 +165,65 @@ class PostProcessing:
 
         # Compute the average curve across all rescaled intervals
         avg_curve = np.mean(rescaled_curves, axis=0)
-        avg_time = np.linspace(0, 1, num_points)
+        # Scale the average curve to match the timespan length
+        original_time = np.linspace(0, 1, num_points)
+        target_time = np.linspace(0, timespan, num_points)
+        avg_curve = np.interp(target_time, original_time * timespan, avg_curve)
+        avg_time = np.linspace(0, timespan, num_points)
 
         return avg_time, avg_curve
+
+    # def get_average_curve_between_diastolic_peaks(self, ifr_df, signal='p_aortic_smooth', num_points=100):
+    #     """
+    #     Computes the average curve between diastolic peaks by scaling each interval to the same time length.
+
+    #     Parameters:
+    #     - ifr_df (pd.DataFrame): The DataFrame containing the signal and peak information.
+    #     - signal (str): The column name of the input signal to analyze.
+    #     - num_points (int): The number of points to normalize each interval to.
+
+    #     Returns:
+    #     - avg_curve (np.ndarray): The average curve of the signal.
+    #     - avg_time (np.ndarray): The normalized time axis corresponding to the average curve.
+    #     """
+    #     # Extract indices of diastolic peaks
+    #     diastolic_indices = ifr_df.index[ifr_df['peaks'] == 2].tolist()
+
+    #     if len(diastolic_indices) < 2:
+    #         raise ValueError("Not enough diastolic peaks to calculate intervals.")
+
+    #     # Initialize a list to store all rescaled intervals
+    #     rescaled_curves = []
+
+    #     for i in range(len(diastolic_indices) - 1):
+    #         start_idx = diastolic_indices[i]
+    #         end_idx = diastolic_indices[i + 1]
+
+    #         # Extract the interval data
+    #         interval_data = ifr_df.loc[start_idx:end_idx, signal].values
+
+    #         if len(interval_data) < 2:
+    #             # Skip intervals with insufficient data
+    #             continue
+
+    #         # Rescale the interval to have `num_points` using interpolation
+    #         original_time = np.linspace(0, 1, len(interval_data))
+    #         scaled_time = np.linspace(0, 1, num_points)
+    #         rescaled_curve = np.interp(scaled_time, original_time, interval_data)
+
+    #         rescaled_curves.append(rescaled_curve)
+
+    #     if len(rescaled_curves) == 0:
+    #         raise ValueError("No valid intervals found for averaging.")
+
+    #     # Convert the list of rescaled curves to a 2D NumPy array
+    #     rescaled_curves = np.array(rescaled_curves)
+
+    #     # Compute the average curve across all rescaled intervals
+    #     avg_curve = np.mean(rescaled_curves, axis=0)
+    #     avg_time = np.linspace(0, 1, num_points)
+
+    #     return avg_time, avg_curve
 
     def split_df_by_pdpa(self, data):
         """
@@ -239,13 +299,13 @@ class PostProcessing:
             if first_valid_idx is not None:
                 # Normalize the time of the first valid value
                 first_time = df_copy.loc[first_valid_idx, 'time']
-                normalized_start = (first_time - start_t) / time_range
+                normalized_start = (first_time - start_t)
                 start_time_aortic.append(normalized_start)
 
             if last_valid_idx is not None:
                 # Normalize the time of the last valid value
                 last_time = df_copy.loc[last_valid_idx, 'time']
-                normalized_end = (last_time - start_t) / time_range
+                normalized_end = last_time - start_t
                 end_time_aortic.append(normalized_end)
 
             # Repeat the same process for diastolic_ratio
@@ -256,12 +316,12 @@ class PostProcessing:
 
             if first_valid_idx is not None:
                 first_time = df_copy.loc[first_valid_idx, 'time']
-                normalized_start = (first_time - start_t) / time_range
+                normalized_start = first_time - start_t
                 start_time_diastolic.append(normalized_start)
 
             if last_valid_idx is not None:
                 last_time = df_copy.loc[last_valid_idx, 'time']
-                normalized_end = (last_time - start_t) / time_range
+                normalized_end = last_time - start_t
                 end_time_diastolic.append(normalized_end)
 
         start_time_aortic_mean = np.mean(start_time_aortic)

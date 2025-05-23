@@ -23,16 +23,8 @@ class Reshuffling:
     def __call__(self):
         x_min, x_max = 50, 512
         y_min, y_max = 25, 487 # cropping images to get rid of frame logo and remove unnecessary info
-        self.diastolic_frames = self.diastolic_frames[:, y_min:y_max, x_min:x_max]
-        self.systolic_frames = self.systolic_frames[:, y_min:y_max, x_min:x_max]
-        def _shift(cont_dict):
-            offset = np.array([x_min, y_min], dtype=float)
-            return { idx: pts - offset for idx, pts in cont_dict.items() }
-        self.dia_contours = _shift(self.dia_contours)
-        self.sys_contours = _shift(self.sys_contours)
-        self.sys_contours = _shift(self.sys_contours)
-        self.sys_refpts   = _shift(self.sys_refpts)
         # embed contours and ref point on diastolic_frames
+        print(self.diastolic_frames.shape)
         self.diastolic_frames = self.embed_contours(
             self.diastolic_frames,
             self.dia_contours,
@@ -45,7 +37,9 @@ class Reshuffling:
             color=(255, 255, 0),
             thickness=3
         )
-
+        self.diastolic_frames = self.diastolic_frames[:, y_min:y_max, x_min:x_max]
+        self.systolic_frames = self.systolic_frames[:, y_min:y_max, x_min:x_max]
+        print(self.diastolic_frames.shape)
         self.refresh_plot(self.diastolic_frames, "diastole",
                           save=os.path.join(self.path, "pre_sorted_diastolic_frames.png"))
         self.refresh_plot(self.systolic_frames, "systole",
@@ -174,6 +168,7 @@ class Reshuffling:
                 raw = raw[None, :]
 
             mm_to_px = 1.0 / 0.01755671203136
+            # mm_to_px = 1.0 / 0.02145760878921
             out: dict[int, list[list[float]]] = {}
             for idx, x_mm, y_mm, _z in raw:
                 i = int(idx)
@@ -463,7 +458,7 @@ if __name__ == '__main__':
     #     "../data/NARCO_122/rest", plot=True
     # )
     reshuffeling = Reshuffling(
-        r"D:\00_coding\pressure_curve_processing\ivus\NARCO_119\stress", plot=True
+        r"D:\00_coding\pressure_curve_processing\ivus\NARCO_216\rest", plot=True
     )
     diastolic_frames_, systolic_frames_ = reshuffeling()
 

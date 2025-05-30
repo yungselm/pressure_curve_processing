@@ -7,24 +7,29 @@ import numpy as np
 import pandas as pd
 from matplotlib.widgets import TextBox, CheckButtons
 from tqdm import tqdm
-
+from scipy.spatial.distance import directed_hausdorff
 
 class Reshuffling:
-    def __init__(self, path, plot=False):
+    def __init__(self, path, resolution=0.01755671203136,  plot=False):
         self.path = path
+        self.csv_path = None
+        self.resolution = resolution
+        self.plot_true = plot
         self.diastolic_frames, self.systolic_frames = self.load_frames(path)
+        self.diastolic_frames_og = self.diastolic_frames.copy()
+        self.systolic_frames_og = self.systolic_frames.copy()
         self.diastolic_info, self.systolic_info = self.read_info(path)
         self.dia_contours, self.dia_refpts = self.load_contours('diastolic')
         self.sys_contours, self.sys_refpts = self.load_contours('systolic')
-        self.sorted_diastolic_indices = None
-        self.sorted_systolic_indices = None
-        self.plot_true = plot
+        self.dia_contours_og = self.dia_contours.copy()
+        self.sys_contours_og = self.sys_contours.copy()
+        self.sorted_diastolic_indices = []
+        self.sorted_systolic_indices = []
 
     def __call__(self):
         x_min, x_max = 50, 512
         y_min, y_max = 25, 487 # cropping images to get rid of frame logo and remove unnecessary info
         # embed contours and ref point on diastolic_frames
-        print(self.diastolic_frames.shape)
         self.diastolic_frames = self.embed_contours(
             self.diastolic_frames,
             self.dia_contours,
@@ -39,26 +44,27 @@ class Reshuffling:
         )
         self.diastolic_frames = self.diastolic_frames[:, y_min:y_max, x_min:x_max]
         self.systolic_frames = self.systolic_frames[:, y_min:y_max, x_min:x_max]
-        print(self.diastolic_frames.shape)
+
         self.refresh_plot(self.diastolic_frames, "diastole",
                           save=os.path.join(self.path, "pre_sorted_diastolic_frames.png"))
         self.refresh_plot(self.systolic_frames, "systole",
                           save=os.path.join(self.path, "pre_sorted_systolic_frames.png"))
-
+        
         (
             self.sorted_diastolic_indices,
             self.sorted_diastolic_frames,
             self.sorted_diastolic_info,
             self.diastolic_correlation_matrix,
             self.diastolic_rotation_matrix,
-        ) = self.reshuffle(self.diastolic_frames, self.diastolic_info, 'diastolic')
+        ) = self.reshuffle(self.diastolic_frames, self.dia_contours, self.diastolic_info, 'diastolic')
         (
             self.sorted_systolic_indices,
             self.sorted_systolic_frames,
             self.sorted_systolic_info,
             self.systolic_correlation_matrix,
             self.systolic_rotation_matrix,
-        ) = self.reshuffle(self.systolic_frames, self.systolic_info, 'systolic')
+        ) = self.reshuffle(self.systolic_frames, self.sys_contours, self.systolic_info, 'systolic')
+
         self.rearrange_info_and_save(name="pre_combined")
         if self.plot_true:
             self.sorted_diastolic_frames, self.sorted_diastolic_indices = self.plot_images(self.sorted_diastolic_frames,  title='Diastolic Frames')
@@ -71,6 +77,8 @@ class Reshuffling:
                 self.sorted_systolic_indices]
             # self.sorted_diastolic_info = self.sorted_diastolic_info[::-1].reset_index(drop=True)
             # self.sorted_systolic_info = self.sorted_systolic_info[::-1].reset_index(drop=True)
+
+            # TODO rearange to original diastolic_frames/systolic_frames and diastolic_info/systolic_info by the new indices and save at the same position as loaded from
 
             self.refresh_plot(self.sorted_diastolic_frames, "diastole", save=os.path.join(self.path, "sorted_diastolic_frames.png"))
             self.refresh_plot(self.sorted_systolic_frames, "systole", save=os.path.join(self.path, "sorted_systolic_frames.png"))
@@ -154,9 +162,9 @@ class Reshuffling:
             csv_dir = csv_dirs[0]
 
         full_csv_dir = os.path.join(self.path, csv_dir)
+        self.csv_path = full_csv_dir
         contour_file = os.path.join(full_csv_dir, f"{phase}_contours.csv")
         refpts_file  = os.path.join(full_csv_dir, f"{phase}_reference_points.csv")
-
         def _read(fname):
             # Force a 2D array even if there's only one row
             raw = np.loadtxt(fname, delimiter='\t')
@@ -167,8 +175,8 @@ class Reshuffling:
                 # exactly one row: turn shape (4,) → (1,4)
                 raw = raw[None, :]
 
-            mm_to_px = 1.0 / 0.01755671203136
-            # mm_to_px = 1.0 / 0.02145760878921
+            mm_to_px = 1.0 / self.resolution
+
             out: dict[int, list[list[float]]] = {}
             for idx, x_mm, y_mm, _z in raw:
                 i = int(idx)
@@ -177,29 +185,48 @@ class Reshuffling:
 
             # convert lists → arrays
             return {k: np.array(v) for k, v in out.items()}
+        
+        if f"{phase}_contours.npz" in os.listdir(full_csv_dir):
+            # load and convert to normal dict
+            npzfile = np.load(os.path.join(full_csv_dir, f"{phase}_contours.npz"))
+            contours = {
+                int(k.split('_',1)[1]): v
+                for k, v in npzfile.items()
+            }
+            # read reference points as before
+            ref_points = _read(refpts_file)
+            ref_points = {k: v for k, v in ref_points.items() if k in contours}
 
-        contours = _read(contour_file)
-        # Map original indices to new consecutive indices 0..N-1
-        old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted(contours.keys()))}
-        # Remap contours to new indices
-        contours = {old_to_new[k]: v for k, v in contours.items()}
+            return contours, ref_points
 
-        ref_points = _read(refpts_file)
-        # Remap ref_points to new indices, only if the index exists in contours
-        ref_points = {old_to_new[k]: v for k, v in ref_points.items() if k in old_to_new}
+        else:
+            contours = _read(contour_file)
+            # Map original indices to new consecutive indices 0..N-1
+            old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted(contours.keys()))}
+            # Remap contours to new indices
+            contours = {old_to_new[k]: v for k, v in contours.items()}
 
-        return contours, ref_points
+            ref_points = _read(refpts_file)
+            # Remap ref_points to new indices, only if the index exists in contours
+            ref_points = {old_to_new[k]: v for k, v in ref_points.items() if k in old_to_new}
+
+            return contours, ref_points
 
     @staticmethod
-    def load_frames(path):
+    def load_frames(path) -> tuple[np.ndarray, np.ndarray]:
         """Load IVUS frames from a directory."""
         diastolic_frames = None
         systolic_frames = None
         for filename in os.listdir(path):
-            if filename.endswith('_diastolic.npy'):
-                diastolic_frames = np.load(os.path.join(path, filename))
-            elif filename.endswith('_systolic.npy'):
-                systolic_frames = np.load(os.path.join(path, filename))
+            full_path = os.path.join(path, filename)
+            if filename.endswith('_diastolic_sorted.npy') and os.path.isfile(full_path):
+                diastolic_frames = np.load(full_path)
+            elif filename.endswith('_systolic_sorted.npy') and os.path.isfile(full_path):
+                systolic_frames = np.load(full_path)
+            elif filename.endswith('_diastolic.npy') and os.path.isfile(full_path) and diastolic_frames is None:
+                diastolic_frames = np.load(full_path)
+            elif filename.endswith('_systolic.npy') and os.path.isfile(full_path) and systolic_frames is None:
+                systolic_frames = np.load(full_path)
             else:
                 continue
 
@@ -209,7 +236,7 @@ class Reshuffling:
         return diastolic_frames, systolic_frames
 
     @staticmethod
-    def read_info(path):
+    def read_info(path) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Read IVUS information from a text file."""
         info = None
         for filename in os.listdir(path):
@@ -232,12 +259,20 @@ class Reshuffling:
         rotated_image = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
         return rotated_image
 
+    def _normalize_array(self, arr: np.array):
+        mean_arr = np.mean(arr)
+        std_arr = np.std(arr)
+        return (arr - mean_arr) / std_arr
+
     def max_correlation(self, slice1, slice2, rotation_step=10):
         """Compute the maximum correlation between two frames with rotation adjustment."""
         max_corr = -np.inf
         best_angle = 0
+        slice1 = self._normalize_array(slice1)
+        
         for angle in range(0, 360, rotation_step):
             rotated_slice2 = self.rotate_image(slice2, angle)
+            rotated_slice2 = self._normalize_array(rotated_slice2)
             corr = np.corrcoef(slice1.ravel(), rotated_slice2.ravel())[0, 1]
             if corr > max_corr:
                 max_corr = corr
@@ -275,7 +310,7 @@ class Reshuffling:
 
         return path
 
-    def compute_correlation_matrix_with_rotation(self, frames, rotation_step=10):
+    def compute_correlation_matrix_with_rotation(self, frames, contours, rotation_step=10):
         """Compute a pairwise correlation matrix for the frames with rotation adjustment."""
         n_frames = frames.shape[0]
         if n_frames == 0:
@@ -286,27 +321,118 @@ class Reshuffling:
 
         total_comparisons = n_frames * (n_frames - 1) // 2
 
+        alpha = 0.3
+
+        keys = sorted(contours.keys())
+        first_idx = keys[0]
+        last_idx = keys[-1]
+        D_max, _, _ = directed_hausdorff(contours[first_idx], contours[last_idx])
+        print(f"D max: {D_max}")
+
         with tqdm(total=total_comparisons, desc="Computing Correlation Matrix") as pbar:
             for i in range(n_frames):
                 for j in range(i + 1, n_frames):
                     corr, angle = self.max_correlation(frames[i], frames[j], rotation_step)
-                    corr_matrix[i, j] = corr
-                    corr_matrix[j, i] = corr
+                    dist, angle_hausdorff = self.min_hausdorff(contours[i], contours[j], rotation_step)
+
+                    # 1) normalize both metrics to [0,1]
+                    s_corr = (corr + 1) / 2
+                    d_norm = min(dist, D_max) / D_max
+                    s_haus = 1 - d_norm
+
+                    # 2) weighted combination
+                    combined_score = alpha * s_corr + (1 - alpha) * s_haus
+
+                    # 3) store combined_score in your matrix instead of raw corr
+                    corr_matrix[i, j] = combined_score
+                    corr_matrix[j, i] = combined_score
+
+                    # still keep rotation info if you want
                     rotation_matrix[i, j] = angle
                     rotation_matrix[j, i] = -angle
+
                     pbar.update(1)
 
         return corr_matrix, rotation_matrix
 
-    def reshuffle(self, frames, info, phase):
-        corr_matrix_file = os.path.join(self.path, f'{phase}_correlation_matrix.npy')
-        rotation_matrix_file = os.path.join(self.path, f'{phase}_rotation_matrix.npy')
+    def min_hausdorff(self, contour1, contour2, rotation_step=10):
+        min_hausdorff = np.inf
+        best_angle = 0
+        for angle in range(0, 360, rotation_step):
+            rotated_contour2 = self.rotate_contour(contour2, angle)
+            hausdorff, _, _ = directed_hausdorff(contour1, rotated_contour2)
+            if hausdorff < min_hausdorff:
+                min_hausdorff = hausdorff
+                best_angle = angle
+        return min_hausdorff, best_angle
+
+    def rotate_contour(self, contour, angle, image_shape=(512, 512)):
+        """
+        Rotate a contour (Nx2 or Nx3 array: [x, y] or [x, y, z]) by a specified angle (degrees)
+        around the center of the image.
+
+        Args:
+            contour: np.ndarray of shape (N, 2) or (N, 3) or (N, 4) (idx, x, y, z or just x, y)
+            angle: float, rotation angle in degrees (counterclockwise)
+            image_shape: tuple, (height, width) of the image
+
+        Returns:
+            rotated_contour: np.ndarray of same shape as input
+        """
+        # Extract x, y coordinates
+        if contour.shape[1] == 4:
+            # (idx, x, y, z)
+            x = contour[:, 1]
+            y = contour[:, 2]
+            rest = contour[:, [0, 3]]
+        elif contour.shape[1] == 3:
+            # (x, y, z)
+            x = contour[:, 0]
+            y = contour[:, 1]
+            rest = contour[:, 2:]
+        else:
+            # (x, y)
+            x = contour[:, 0]
+            y = contour[:, 1]
+            rest = None
+
+        # Center of rotation
+        h, w = image_shape
+        center = np.array([w / 2, h / 2])
+
+        # Convert angle to radians
+        theta = np.deg2rad(angle)
+        rot_mat = np.array([
+            [np.cos(theta), -np.sin(theta)],
+            [np.sin(theta),  np.cos(theta)]
+        ])
+
+        # Shift to origin, rotate, shift back
+        coords = np.stack([x, y], axis=1) - center
+        rotated_coords = coords @ rot_mat.T + center
+
+        # Reconstruct output
+        if rest is not None:
+            if rest.shape[1] == 2:
+                # (idx, x, y, z)
+                rotated = np.column_stack([rest[:, 0], rotated_coords, rest[:, 1]])
+            else:
+                # (x, y, z)
+                rotated = np.column_stack([rotated_coords, rest])
+        else:
+            rotated = rotated_coords
+
+        return rotated
+
+    def reshuffle(self, frames, contours, info, phase):
+        corr_matrix_file = os.path.join(self.path, f'{phase}_correlation__hausdorff_matrix.npy')
+        rotation_matrix_file = os.path.join(self.path, f'{phase}_rotation__hausdorff_matrix.npy')
 
         if os.path.exists(corr_matrix_file) and os.path.exists(rotation_matrix_file):
             correlation_matrix = np.load(corr_matrix_file)
             rotation_matrix = np.load(rotation_matrix_file)
         else:
-            correlation_matrix, rotation_matrix = self.compute_correlation_matrix_with_rotation(frames)
+            correlation_matrix, rotation_matrix = self.compute_correlation_matrix_with_rotation(frames, contours)
             np.save(corr_matrix_file, correlation_matrix)
             np.save(rotation_matrix_file, rotation_matrix)
 
@@ -392,6 +518,7 @@ class Reshuffling:
         check_button.on_clicked(finish_plot)
         if not save:
             plt.show()
+        plt.close()
 
     def plot_images(self, frames, title):
         """
@@ -430,6 +557,7 @@ class Reshuffling:
         return np.array(sorted_frames), rearranged_indices
 
     def plot_correlation_matrix(self, correlation_matrix, title='Correlation Matrix'):
+        plt.close('all')
         plt.figure(figsize=(8, 8))
         plt.imshow(correlation_matrix, cmap='viridis')
         plt.colorbar()
@@ -437,6 +565,7 @@ class Reshuffling:
         plt.xlabel('Frame Index')
         plt.ylabel('Frame Index')
         plt.savefig(os.path.join(self.path, f'{title}.png'))
+        plt.close()
 
     def rearrange_info_and_save(self, name: str = "combined"):
         combined_info_sorted = pd.concat([self.sorted_diastolic_info, self.sorted_systolic_info], axis=0)
@@ -445,21 +574,34 @@ class Reshuffling:
         if self.plot_true:
             combined_info_sorted.to_csv(os.path.join(self.path, f'{name}_sorted_manual.csv'), index=False)
             combined_info_original.to_csv(os.path.join(self.path, f'{name}_original_manual.csv'), index=False)
+            # adjust .npy file and .csv file to match the new order.
+            print(f"REARRANGE: sorted diastolic indices -> {self.sorted_diastolic_indices}")
+            print(f"REARRANGE: sorted systolic indices -> {self.sorted_systolic_indices}")
+            print(f"REARRANGE: dia_contour_og -> {self.dia_contours_og}")
+            self.diastolic_frames_og = self.diastolic_frames_og[self.sorted_diastolic_indices]
+            self.systolic_frames_og = self.systolic_frames_og[self.sorted_systolic_indices]
+            np.save(os.path.join(self.path, f'{name}_diastolic_sorted.npy'), self.diastolic_frames_og[::-1])
+            np.save(os.path.join(self.path, f'{name}_systolic_sorted.npy'), self.systolic_frames_og[::-1])
+            
+            ordered_items = [self.dia_contours_og[i] for i in self.sorted_diastolic_indices][::-1]
+            self.dia_contour_og = {new_idx: item for new_idx, item in enumerate(ordered_items)}
+            ordered_items = [self.sys_contours_og[i] for i in self.sorted_systolic_indices][::-1]
+            self.sys_contour_og = {new_idx: item for new_idx, item in enumerate(ordered_items)}
+            np.savez(os.path.join(self.csv_path, 'diastolic_contours.npz'), **{f'key_{k}': v for k, v in self.dia_contours_og.items()})
+            np.savez(os.path.join(self.csv_path, 'systolic_contours.npz'), **{f'key_{k}': v for k, v in self.sys_contours_og.items()})
         else:
             combined_info_sorted.to_csv(os.path.join(self.path, f'{name}_sorted.csv'), index=False)
             combined_info_original.to_csv(os.path.join(self.path, f'{name}_original.csv'), index=False)
+            # adjust .npy file and .csv file to match the new order.
+            
 
         print("Combined info saved successfully.")
 
 
 if __name__ == '__main__':
-    # reshuffeling = Reshuffeling(r"C:\WorkingData\Documents\2_Coding\Python\pressure_curve_processing\test_files\Rest")
-    # reshuffeling = Reshuffling(
-    #     "../data/NARCO_122/rest", plot=True
-    # )
+    # alternative resolution
+    res = 0.02145760878921
     reshuffeling = Reshuffling(
-        r"D:\00_coding\pressure_curve_processing\ivus\NARCO_216\rest", plot=True
+        r"D:\00_coding\pressure_curve_processing\ivus\NARCO_122\rest", resolution=res, plot=True
     )
     diastolic_frames_, systolic_frames_ = reshuffeling()
-
-# ssd = np.sum(np.array(frame1) - np.array(frame2) ** 2) / (img.size)

@@ -27,7 +27,7 @@ class Reshuffling:
         self.sorted_systolic_indices = []
 
     def __call__(self):
-        x_min, x_max = 50, 512
+        x_min, x_max = 25, 487
         y_min, y_max = 25, 487 # cropping images to get rid of frame logo and remove unnecessary info
         # embed contours and ref point on diastolic_frames
         self.diastolic_frames = self.embed_contours(
@@ -77,8 +77,6 @@ class Reshuffling:
                 self.sorted_systolic_indices]
             # self.sorted_diastolic_info = self.sorted_diastolic_info[::-1].reset_index(drop=True)
             # self.sorted_systolic_info = self.sorted_systolic_info[::-1].reset_index(drop=True)
-
-            # TODO rearange to original diastolic_frames/systolic_frames and diastolic_info/systolic_info by the new indices and save at the same position as loaded from
 
             self.refresh_plot(self.sorted_diastolic_frames, "diastole", save=os.path.join(self.path, "sorted_diastolic_frames.png"))
             self.refresh_plot(self.sorted_systolic_frames, "systole", save=os.path.join(self.path, "sorted_systolic_frames.png"))
@@ -219,9 +217,9 @@ class Reshuffling:
         systolic_frames = None
         for filename in os.listdir(path):
             full_path = os.path.join(path, filename)
-            if filename.endswith('_diastolic_sorted.npy') and os.path.isfile(full_path):
+            if filename == 'pre_combined_diastolic_sorted.npy' and os.path.isfile(full_path):
                 diastolic_frames = np.load(full_path)
-            elif filename.endswith('_systolic_sorted.npy') and os.path.isfile(full_path):
+            elif filename == 'pre_combined_systolic_sorted.npy' and os.path.isfile(full_path):
                 systolic_frames = np.load(full_path)
             elif filename.endswith('_diastolic.npy') and os.path.isfile(full_path) and diastolic_frames is None:
                 diastolic_frames = np.load(full_path)
@@ -266,29 +264,57 @@ class Reshuffling:
 
     def max_correlation(self, slice1, slice2, rotation_step=10):
         """Compute the maximum correlation between two frames with rotation adjustment."""
+        if slice1.ndim == 3 and slice1.shape[2] == 3:
+            slice1 = slice1[..., 0]
+        if slice2.ndim == 3 and slice2.shape[2] == 3:
+            slice2 = slice2[..., 0]
+        slice1 = self._normalize_array(slice1)
+        weight_map = self.weigth_map_gaussian()
+        weighted_slice1 = slice1 * weight_map
+        
         max_corr = -np.inf
         best_angle = 0
-        slice1 = self._normalize_array(slice1)
-        
+
         for angle in range(0, 360, rotation_step):
             rotated_slice2 = self.rotate_image(slice2, angle)
             rotated_slice2 = self._normalize_array(rotated_slice2)
-            corr = np.corrcoef(slice1.ravel(), rotated_slice2.ravel())[0, 1]
+
+            weighted_slice2 = rotated_slice2 * weight_map
+            corr = np.corrcoef(weighted_slice1.ravel(), weighted_slice2.ravel())[0, 1]
             if corr > max_corr:
                 max_corr = corr
                 best_angle = angle
         return max_corr, best_angle
+    
+    @staticmethod
+    def weigth_map_gaussian(sigma=175.0):
+        height, width = 462, 462
 
-    def compute_correlation_matrix(self, frames):
-        """Compute a pairwise correlation matrix for the frames."""
-        n_frames = frames.shape[0]
-        corr_matrix = np.zeros((n_frames, n_frames))
-        for i in range(n_frames):
-            for j in range(i + 1, n_frames):
-                corr = np.corrcoef(frames[i].ravel(), frames[j].ravel())[0, 1]
-                corr_matrix[i, j] = corr
-                corr_matrix[j, i] = corr
-        return corr_matrix
+        x = np.linspace(0, height - 1, height)
+        y = np.linspace(0, width - 1, width)
+        x, y = np.meshgrid(x, y)
+
+        x0 = (width - 1) / 2
+        y0 = (height - 1) / 2
+
+        gaussian_2d = np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2))
+        # Normalize so the peak is exactly 1
+        gaussian_2d /= gaussian_2d.max()
+        # set catheter region to 0
+        gaussian_2d[203:259, 203:259] = 0
+
+        return gaussian_2d
+
+    # def compute_correlation_matrix(self, frames):
+    #     """Compute a pairwise correlation matrix for the frames."""
+    #     n_frames = frames.shape[0]
+    #     corr_matrix = np.zeros((n_frames, n_frames))
+    #     for i in range(n_frames):
+    #         for j in range(i + 1, n_frames):
+    #             corr = np.corrcoef(frames[i].ravel(), frames[j].ravel())[0, 1]
+    #             corr_matrix[i, j] = corr
+    #             corr_matrix[j, i] = corr
+    #     return corr_matrix
 
     @staticmethod
     def greedy_path(corr_matrix):
@@ -327,7 +353,6 @@ class Reshuffling:
         first_idx = keys[0]
         last_idx = keys[-1]
         D_max, _, _ = directed_hausdorff(contours[first_idx], contours[last_idx])
-        print(f"D max: {D_max}")
 
         with tqdm(total=total_comparisons, desc="Computing Correlation Matrix") as pbar:
             for i in range(n_frames):
@@ -572,16 +597,29 @@ class Reshuffling:
         combined_info_original = pd.concat([self.diastolic_info, self.systolic_info], axis=0)
         # Save the rearranged information to a new file
         if self.plot_true:
+            print(f"name is {name}")
             combined_info_sorted.to_csv(os.path.join(self.path, f'{name}_sorted_manual.csv'), index=False)
             combined_info_original.to_csv(os.path.join(self.path, f'{name}_original_manual.csv'), index=False)
             # adjust .npy file and .csv file to match the new order.
             print(f"REARRANGE: sorted diastolic indices -> {self.sorted_diastolic_indices}")
             print(f"REARRANGE: sorted systolic indices -> {self.sorted_systolic_indices}")
-            print(f"REARRANGE: dia_contour_og -> {self.dia_contours_og}")
-            self.diastolic_frames_og = self.diastolic_frames_og[self.sorted_diastolic_indices]
-            self.systolic_frames_og = self.systolic_frames_og[self.sorted_systolic_indices]
-            np.save(os.path.join(self.path, f'{name}_diastolic_sorted.npy'), self.diastolic_frames_og[::-1])
-            np.save(os.path.join(self.path, f'{name}_systolic_sorted.npy'), self.systolic_frames_og[::-1])
+            print(f"REARRANGE: dia_contour_og -> {self.sorted_diastolic_frames.shape}")
+            # Remove last dimension (color) and pad to (512, 512)
+            def pad_to_512x512(frames):
+                # frames: (N, H, W, 3) or (N, H, W)
+                if frames.ndim == 4:
+                    frames = frames[..., 0]  # take first channel (grayscale)
+                N, H, W = frames.shape
+                padded = np.zeros((N, 512, 512), dtype=frames.dtype)
+                y_offset = (512 - H) // 2
+                x_offset = (512 - W) // 2
+                padded[:, y_offset:y_offset+H, x_offset:x_offset+W] = frames
+                return padded
+
+            sorted_diastolic_frames = pad_to_512x512(self.sorted_diastolic_frames)
+            sorted_systolic_frames = pad_to_512x512(self.sorted_systolic_frames)
+            np.save(os.path.join(self.path, f'{name}_diastolic_sorted.npy'), sorted_diastolic_frames)
+            np.save(os.path.join(self.path, f'{name}_systolic_sorted.npy'), sorted_systolic_frames)
             
             ordered_items = [self.dia_contours_og[i] for i in self.sorted_diastolic_indices][::-1]
             self.dia_contour_og = {new_idx: item for new_idx, item in enumerate(ordered_items)}
@@ -600,8 +638,9 @@ class Reshuffling:
 
 if __name__ == '__main__':
     # alternative resolution
-    res = 0.02145760878921
+    res = 0.01755671203136
+    # res = 0.02145760878921
     reshuffeling = Reshuffling(
-        r"D:\00_coding\pressure_curve_processing\ivus\NARCO_122\rest", resolution=res, plot=True
+        r"D:\00_coding\pressure_curve_processing\ivus\NARCO_279\stress", resolution=res, plot=True
     )
     diastolic_frames_, systolic_frames_ = reshuffeling()
